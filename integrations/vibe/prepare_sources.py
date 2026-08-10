@@ -187,8 +187,10 @@ replace_once(
     "#if !STACKCHAN_DEVICE_STOPWATCH\n",
     "const char* streetPassBusyReason() {\n"
     "  // Continuous StreetPass scanning on the shared controller can starve\n"
-    "  // the macOS HID link. Keep it paused while any resident peer exists.\n"
-    "  if (VibeMode::bleLinkConnected()) {\n"
+    "  // the interactive HID link. Pause it only while Vibe owns the UI; a\n"
+    "  // resident background HID connection must not prevent StreetPass from\n"
+    "  // resuming after the user returns to a normal experience mode.\n"
+    "  if (VibeMode::active() && VibeMode::bleLinkConnected()) {\n"
     f'    return "{vibe_mode_name}_hid";\n'
     "  }\n"
     "#if !STACKCHAN_DEVICE_STOPWATCH\n",
