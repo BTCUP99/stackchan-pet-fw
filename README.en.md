@@ -61,7 +61,7 @@ instructions, and unsupported features.
 - Affection management and status overlays
 - StopWatch step counter, 30-day history, and synchronization
 - StopWatch shutter and lens requests to a compatible phone app
-- Four on-device experience modes on CoreS3 and StopWatch
+- Four regular experience modes plus source-build Vibe integration on CoreS3 and StopWatch
 - Stopwatch, countdown, time challenge, and Pomodoro
 - Travel-mode still-expression picker on CoreS3 and StopWatch
 - CoreS3 servo reactions
@@ -92,6 +92,23 @@ pio run -e <env> -t uploadfs
 Replace `<env>` with an environment from the supported-device table. Regular face
 images are already included. Wi-Fi can be configured from the device setup page,
 and Git ignores `src/config_private.h`.
+
+### Build the Vibe Mode Integration
+
+The Vibe environments use pinned Git submodules: GOROman's
+[VibeWatch](https://github.com/GOROman/vibewatch) for StopWatch and
+[VibeStackChan](https://github.com/Corvelis/VibeStackChan) for CoreS3 +
+Stack-chan.
+
+```sh
+git submodule update --init --recursive
+pio run -c integrations/vibe/platformio.ini -e m5stack-cores3-vibewatch
+pio run -c integrations/vibe/platformio.ini -e m5stack-stopwatch-vibewatch
+```
+
+These builds add a Vibe mode to the four regular experience modes. See the
+[Vibe Mode Integration Guide](integrations/vibe/README.en.md) for dependency
+versions, controls, and updates.
 
 ## Face Rendering
 
@@ -150,6 +167,7 @@ See the protocol documents for details.
 | Complete version history | [Changelog](CHANGELOG.md) |
 | Face image creation | [Face Image Builder](tools/face_image_builder/README.en.md) |
 | Development checks | [Contributing](CONTRIBUTING.md#english) |
+| VibeWatch/VibeStackChan integration | [Vibe Mode Integration Guide](integrations/vibe/README.en.md) |
 
 Public documents are maintained as Japanese／English pairs. CI rejects additions
 or updates that change only one side.

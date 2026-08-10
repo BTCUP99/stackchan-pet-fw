@@ -55,6 +55,20 @@ NimBLE-Arduino's upstream NOTICE states:
 > contributors. Some parts were copied from, derived from, or inspired by
 > esp32-snippets, Copyright 2017 Neil Kolban.
 
+## Pinned Vibe Mode Dependencies
+
+The optional Vibe-enabled source builds use exact Git submodule commits. The
+pins are recorded in `integrations/vibe/upstreams.json`.
+
+| Dependency | License | Notes |
+| --- | --- | --- |
+| [GOROman/VibeWatch](https://github.com/GOROman/vibewatch) | MIT | Provides the StopWatch Vibe mode and is the basis for the BLE HID controls, interaction model, UI, and visual design. Thank you to GOROman for making VibeWatch available. |
+| [Corvelis/VibeStackChan](https://github.com/Corvelis/VibeStackChan) | MIT | Provides the CoreS3 + Stack-chan Vibe mode derived from VibeWatch. |
+
+The upstream repositories remain separate submodules and retain their own
+copyright and license files. Build-time integration adaptations are maintained
+in `integrations/vibe` rather than as uncommitted edits to either submodule.
+
 ## Vendored Source
 
 | Source | License | Notes |

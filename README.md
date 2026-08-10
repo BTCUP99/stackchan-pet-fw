@@ -58,7 +58,7 @@ HTTP・WebSocket・USB Serial接続を提供します。CoreS3ではサーボと
 - 好感度管理と状態overlay
 - StopWatchの歩数計、30日履歴、同期
 - StopWatchから対応スマホアプリへのカメラ撮影／レンズ切替要求
-- CoreS3／StopWatchの4体験モードと端末内モード選択
+- CoreS3／StopWatchの4体験モードと、source build向けVibeモード連携
 - ストップウォッチ、カウントダウン、時間当てチャレンジ、ポモドーロ
 - CoreS3／StopWatchの旅モード静止表情ピッカー
 - CoreS3のサーボreaction
@@ -88,6 +88,22 @@ pio run -e <env> -t uploadfs
 
 `<env>`は対応デバイス表の環境名へ置き換えてください。通常の顔画像は同梱済みです。
 Wi-Fiは起動後の設定画面から登録でき、`src/config_private.h`はGit管理外です。
+
+### Vibeモード連携をbuildする
+
+Vibe連携envは、StopWatchではGOROmanさんの
+[VibeWatch](https://github.com/GOROman/vibewatch)、CoreS3 + ｽﾀｯｸﾁｬﾝでは
+[VibeStackChan](https://github.com/Corvelis/VibeStackChan)を固定commitのGit submoduleとして
+使用します。
+
+```sh
+git submodule update --init --recursive
+pio run -c integrations/vibe/platformio.ini -e m5stack-cores3-vibewatch
+pio run -c integrations/vibe/platformio.ini -e m5stack-stopwatch-vibewatch
+```
+
+通常の4体験モードにVibeモードが追加されます。依存version、操作、更新方法は
+[Vibeモード連携ガイド](integrations/vibe/README.md)を参照してください。
 
 ## 顔表示
 
@@ -145,6 +161,7 @@ classic顔は実行時設定ではなく、対応する`*-classic` envを別途b
 | 全versionの変更 | [CHANGELOG](CHANGELOG.ja.md) |
 | 顔画像の作成 | [顔画像ビルダー](tools/face_image_builder/README.md) |
 | 開発時の確認事項 | [CONTRIBUTING](CONTRIBUTING.md#日本語) |
+| VibeWatch／VibeStackChan連携 | [Vibeモード連携ガイド](integrations/vibe/README.md) |
 
 公開文書は日本語版と英語版を対にして管理し、片方だけの追加・更新はCIで検出します。
 

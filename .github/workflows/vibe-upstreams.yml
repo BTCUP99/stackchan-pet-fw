@@ -1,0 +1,55 @@
+name: Vibe Upstream Check
+
+on:
+  schedule:
+    - cron: "17 0 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository and pinned dependencies
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Compare pins with upstream main branches
+        id: upstream
+        shell: bash
+        run: |
+          set +e
+          python scripts/check_vibe_upstreams.py --remote > /tmp/vibe-upstreams.md
+          status=$?
+          set -e
+          cat /tmp/vibe-upstreams.md
+          echo "status=${status}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "report<<VIBE_REPORT_EOF"
+            cat /tmp/vibe-upstreams.md
+            echo "VIBE_REPORT_EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Reject an invalid local pin
+        if: steps.upstream.outputs.status == '1'
+        run: exit 1
+
+      - name: Open an update issue when an upstream moves
+        if: steps.upstream.outputs.status == '2'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT: ${{ steps.upstream.outputs.report }}
+        shell: bash
+        run: |
+          title="Vibe dependency update available"
+          existing="$(gh issue list --state open --search "${title} in:title" --json number --jq '.[0].number // empty')"
+          if [[ -z "${existing}" ]]; then
+            gh issue create --title "${title}" --body "${REPORT}"
+          else
+            echo "Update issue #${existing} is already open."
+          fi

@@ -43,6 +43,9 @@ python3 scripts/check_bilingual_docs.py
 - 公開文書は必ず日本語版と英語版を同時に作成・更新してください。`CHANGELOG.md`と
   `CHANGELOG.ja.md`、`docs/*.md`と`docs/*.ja.md`、各toolの`README.md`と
   `README.en.md`は対です。CIは片方だけの追加・更新を失敗として扱います。
+- Vibe連携を変更する場合は、submoduleを直接編集せず、`integrations/vibe`のadapterを
+  変更してください。`python3 scripts/check_vibe_upstreams.py`を実行し、
+  `m5stack-cores3-vibewatch`と`m5stack-stopwatch-vibewatch`を両方buildしてください。
 
 ### コミットの分け方
 
@@ -76,5 +79,9 @@ python3 scripts/check_bilingual_docs.py
 - Paired documents include `CHANGELOG.md`／`CHANGELOG.ja.md`,
   `docs/*.md`／`docs/*.ja.md`, and each tool's
   `README.md`／`README.en.md`.
+- For Vibe integration changes, never edit a submodule directly. Update the
+  adapter under `integrations/vibe`, run
+  `python3 scripts/check_vibe_upstreams.py`, and build both
+  `m5stack-cores3-vibewatch` and `m5stack-stopwatch-vibewatch`.
 
 Keep firmware code, runtime assets, documentation, and CI/build configuration in separate commits where practical. For generated assets, record the source and generation command in the commit message or pull request description.

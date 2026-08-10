@@ -1,0 +1,6 @@
+[submodule "vibewatch"]
+	path = external/VibeWatch
+	url = https://github.com/GOROman/vibewatch.git
+[submodule "vibestackchan"]
+	path = external/VibeStackChan
+	url = https://github.com/Corvelis/VibeStackChan.git

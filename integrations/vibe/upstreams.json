@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "dependencies": {
+    "vibewatch": {
+      "path": "external/VibeWatch",
+      "url": "https://github.com/GOROman/vibewatch.git",
+      "branch": "main",
+      "release": "v1.00",
+      "commit": "f2520875a61fe087cb7e5b63a2a61ddcc2e79cb2"
+    },
+    "vibestackchan": {
+      "path": "external/VibeStackChan",
+      "url": "https://github.com/Corvelis/VibeStackChan.git",
+      "branch": "main",
+      "release": "v0.1.0",
+      "commit": "7bf2a17a0f1ff0ac07505d6724c9ca2e95181b29"
+    }
+  }
+}
