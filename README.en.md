@@ -106,7 +106,9 @@ pio run -c integrations/vibe/platformio.ini -e m5stack-cores3-vibestackchan
 pio run -c integrations/vibe/platformio.ini -e m5stack-stopwatch-vibewatch
 ```
 
-These builds add a Vibe mode to the four regular experience modes. See the
+These environments are source-build-only and are not added to the `firmware`
+or `factory` assets in regular GitHub Releases. They add a Vibe mode to the
+four regular experience modes. See the
 [Vibe Mode Integration Guide](integrations/vibe/README.en.md) for dependency
 versions, controls, and updates.
 

@@ -13,6 +13,7 @@
 - 全3機種の`device.info`に、起動境界を識別する`bootId`。
 - CoreS3／StopWatchの`device.info`に、現在モード、ポモドーロ設定、4つのversion付きcapability。
 - 体験モード操作仕様とタイムキーパー通信仕様の日本語／英語文書。
+- source build向けのVibeWatch／VibeStackChan連携モード、固定submodule、日英連携ガイド。
 
 ### 変更
 

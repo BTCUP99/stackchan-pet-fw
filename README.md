@@ -102,7 +102,8 @@ pio run -c integrations/vibe/platformio.ini -e m5stack-cores3-vibestackchan
 pio run -c integrations/vibe/platformio.ini -e m5stack-stopwatch-vibewatch
 ```
 
-通常の4体験モードにVibeモードが追加されます。依存version、操作、更新方法は
+この2環境はsource build専用で、通常のGitHub Releasesに含まれる`firmware`／`factory`へは
+追加されません。通常の4体験モードにVibeモードが追加されます。依存version、操作、更新方法は
 [Vibeモード連携ガイド](integrations/vibe/README.md)を参照してください。
 
 ## 顔表示

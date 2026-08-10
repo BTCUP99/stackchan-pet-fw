@@ -4,6 +4,10 @@
 
 CoreS3 and M5Stack StopWatch image-face builds provide four experience modes: Conversation, Guruguru, Timekeeper, and Travel. AtomS3R Chatbot keeps its existing Conversation and Guruguru controls; it does not provide the four-sector selector, Timekeeper, or Travel mode.
 
+The source-build-only Vibe environments add a fifth Vibe mode. See the
+[Vibe Mode Integration Guide](../integrations/vibe/README.en.md) for dependency
+versions and controls.
+
 ## Selecting a Mode
 
 ### CoreS3

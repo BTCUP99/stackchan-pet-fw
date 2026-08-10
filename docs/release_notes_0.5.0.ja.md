@@ -2,14 +2,14 @@
 
 [English](release_notes_0.5.0.md) | [日本語](release_notes_0.5.0.ja.md)
 
-0.5.0では、CoreS3とM5Stack StopWatchに4つの体験モード、タイムキーパー、旅モードを追加します。AtomS3R Chatbotは従来の会話／ぐるぐる機能を維持します。
+0.5.0では、CoreS3とM5Stack StopWatchに4つの体験モード、タイムキーパー、旅モードを追加します。source build専用環境ではVibeモード連携も利用できます。AtomS3R Chatbotは従来の会話／ぐるぐる機能を維持します。
 
 ## 機種別の変更範囲
 
 | 機種 | 0.5.0での変更 |
 | --- | --- |
-| CoreS3 + ｽﾀｯｸﾁｬﾝ | 4体験モード、タイムキーパー、旅モード、旅画像、関連APIを追加 |
-| M5Stack StopWatch | 4体験モード、タイムキーパー、旅モード、旅画像、関連APIを追加 |
+| CoreS3 + ｽﾀｯｸﾁｬﾝ | 4体験モード、タイムキーパー、旅モード、旅画像、関連APIを追加。source buildではVibeStackChan連携を選択可能 |
+| M5Stack StopWatch | 4体験モード、タイムキーパー、旅モード、旅画像、関連APIを追加。source buildではVibeWatch連携を選択可能 |
 | AtomS3R Chatbot | 配布バイナリのversionを0.5.0へ更新し、全機種共通の`device.info.bootId`を追加。ユーザー向けの会話／ぐるぐる機能、capability、65枚の顔画像は従来どおり |
 
 AtomS3Rには4分割モード選択、タイムキーパー、旅モード、旅画像、`experience.mode.v1`などの新しいcapabilityは追加しません。
@@ -43,6 +43,17 @@ AtomS3Rには4分割モード選択、タイムキーパー、旅モード、旅
 - 同じ人物の9表情を生成する3×3プロンプト、行優先分割、端末別ピッカー生成ツール。
 
 配布画像数はCoreS3が76 JPG、StopWatchが68 JPGです。AtomS3Rは従来どおり65 JPGです。
+
+### Vibeモード連携（source build）
+
+- StopWatchはGOROmanさんのVibeWatch、CoreS3 + ｽﾀｯｸﾁｬﾝはVibeStackChanを固定commitの
+  Git submoduleとして参照。
+- 通常の4モードへVibeモードを追加し、同じ本体操作でモードへ入る／戻ることが可能。
+- Vibeモード中はStreetPass、歩数更新、Timekeeper、通常のWi-Fi／USBアプリ処理を一時停止し、
+  別モードへ戻ると再開。
+- 通常のGitHub Releasesに含まれる`firmware`／`factory`には追加せず、専用envからbuild。
+
+build、操作、依存更新は[Vibeモード連携ガイド](../integrations/vibe/README.md)を参照してください。
 
 ## アプリ連携
 
@@ -122,6 +133,7 @@ GitHub Releasesでは機種ごとに`firmware`と`factory`を用意します。
 - 旅モードの分割、ピッカー配置、完全セット検証。
 - 日英ドキュメントペアとローカル絶対パス検査。
 - CoreS3／StopWatchのモード選択、タイムキーパー、旅モード実機操作。
+- Vibe連携envのCoreS3／StopWatch実機書き込み、モード出入り、入力、BLE HID再接続。
 
 ## 関連文書
 
@@ -130,3 +142,4 @@ GitHub Releasesでは機種ごとに`firmware`と`factory`を用意します。
 - [顔画像ビルダー](../tools/face_image_builder/README.md)
 - [顔画像ファイル棚卸し](face_image_inventory.ja.md)
 - [バイナリ版インストール手順](install_binary.ja.md)
+- [Vibeモード連携ガイド](../integrations/vibe/README.md)

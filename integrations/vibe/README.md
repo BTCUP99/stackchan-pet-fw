@@ -22,9 +22,20 @@ pio run -c integrations/vibe/platformio.ini -e m5stack-cores3-vibestackchan
 pio run -c integrations/vibe/platformio.ini -e m5stack-stopwatch-vibewatch
 ```
 
-CoreS3版のVibeモードはVibeStackChanと同じ`FAST`、`FORK`、`SEND`、Agent／Action切り替え、
-背面タッチ操作を使用します。背面はタップで録音開始、再タップで録音終了、その後の長押しで
-送信します。StopWatch版はVibeWatchの画面・物理ボタン操作を使用します。
+この2環境はsource build専用です。通常のGitHub Releasesに含まれる`firmware`／`factory`へは
+追加されません。接続した実機へは、上記build commandの末尾へ`-t upload`を付けて書き込みます。
+
+## モード選択と操作
+
+- CoreS3では画面左端から右へフリック、StopWatchでは黄色のBtnAを約0.7秒長押しして
+  5分割のモード選択を開きます。Vibeモードから戻る場合も同じ操作で別モードを選びます。
+- CoreS3版はVibeStackChanと同じ`FAST`、`FORK`、`SEND`、Agent／Action切り替え、
+  背面タッチ操作を使用します。背面はタップで録音開始、再タップで録音終了、その後の長押しで
+  送信します。
+- StopWatch版はVibeWatchの画面・物理ボタン操作を使用します。黄色ボタンの長押しだけは
+  親firmwareのモード選択として予約します。
+- Vibeモード中はStreetPass、歩数更新、Timekeeper、通常のWi-Fi／USBアプリ処理を一時停止し、
+  別モードへ戻ると再開します。
 
 ## 更新確認
 

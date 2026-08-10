@@ -2,14 +2,14 @@
 
 [English](release_notes_0.5.0.md) | [日本語](release_notes_0.5.0.ja.md)
 
-Version 0.5.0 adds four experience modes, Timekeeper, and Travel mode to CoreS3 and M5Stack StopWatch. AtomS3R Chatbot keeps its existing Conversation and Guruguru features.
+Version 0.5.0 adds four experience modes, Timekeeper, and Travel mode to CoreS3 and M5Stack StopWatch. Source-build-only environments also provide Vibe mode integration. AtomS3R Chatbot keeps its existing Conversation and Guruguru features.
 
 ## Changes by Target
 
 | Target | Changes in 0.5.0 |
 | --- | --- |
-| CoreS3 + Stack-chan | Adds four experience modes, Timekeeper, Travel, Travel assets, and related APIs |
-| M5Stack StopWatch | Adds four experience modes, Timekeeper, Travel, Travel assets, and related APIs |
+| CoreS3 + Stack-chan | Adds four experience modes, Timekeeper, Travel, Travel assets, and related APIs; source builds can add VibeStackChan integration |
+| M5Stack StopWatch | Adds four experience modes, Timekeeper, Travel, Travel assets, and related APIs; source builds can add VibeWatch integration |
 | AtomS3R Chatbot | Updates the release version to 0.5.0 and adds the shared `device.info.bootId`; existing user-visible Conversation/Guruguru behavior, capabilities, and 65 face images remain unchanged |
 
 AtomS3R does not add the four-sector selector, Timekeeper, Travel mode, Travel assets, or new capabilities such as `experience.mode.v1`.
@@ -43,6 +43,20 @@ See [Experience Modes and On-Device Controls](experience_modes.md) for complete 
 - Adds a 3x3 same-character prompt, row-major splitter naming, and target-specific picker generator.
 
 Release image counts are 76 JPGs on CoreS3, 68 on StopWatch, and the unchanged 65 on AtomS3R.
+
+### Vibe Mode Integration (Source Build)
+
+- Pins GOROman's VibeWatch for StopWatch and VibeStackChan for CoreS3 +
+  Stack-chan as exact Git submodule commits.
+- Adds Vibe as a fifth mode and uses the same on-device selector to enter or
+  leave it.
+- Pauses StreetPass, step updates, Timekeeper, and regular Wi-Fi/USB application
+  processing in Vibe mode, then resumes them after selecting another mode.
+- Uses dedicated build environments and does not add Vibe binaries to the
+  regular GitHub Release `firmware` or `factory` assets.
+
+See the [Vibe Mode Integration Guide](../integrations/vibe/README.en.md) for
+build steps, controls, and dependency updates.
 
 ## App Integration
 
@@ -123,6 +137,8 @@ Ignored `data_local/`, `data_stopwatch_local/`, and `data_atoms3r_local/` remain
 - Test Travel splitting, picker placement, and complete-set validation.
 - Check paired Japanese/English documentation and local absolute paths.
 - Manually verify mode selection, Timekeeper, and Travel controls on CoreS3/StopWatch.
+- Flash both Vibe environments and verify mode transitions, controls, and BLE
+  HID reconnection on CoreS3/StopWatch hardware.
 
 ## Related Documents
 
@@ -131,3 +147,4 @@ Ignored `data_local/`, `data_stopwatch_local/`, and `data_atoms3r_local/` remain
 - [Face Image Builder](../tools/face_image_builder/README.en.md)
 - [Face Image File Inventory](face_image_inventory.md)
 - [Binary Installation Guide](install_binary.md)
+- [Vibe Mode Integration Guide](../integrations/vibe/README.en.md)

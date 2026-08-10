@@ -23,10 +23,22 @@ pio run -c integrations/vibe/platformio.ini -e m5stack-cores3-vibestackchan
 pio run -c integrations/vibe/platformio.ini -e m5stack-stopwatch-vibewatch
 ```
 
-The CoreS3 Vibe mode uses the same `FAST`, `FORK`, `SEND`, Agent/Action layer,
-and rear-touch behavior as VibeStackChan. Tap the rear sensor to start
-recording, tap it again to stop, then hold it to send. The StopWatch build uses
-VibeWatch's touchscreen and physical-button controls.
+These environments are source-build-only and are not added to the `firmware`
+or `factory` assets in regular GitHub Releases. Append `-t upload` to the build
+command above to flash the corresponding connected device.
+
+## Mode Selection and Controls
+
+- On CoreS3, flick right from the left edge. On StopWatch, hold the yellow BtnA
+  for about 0.7 seconds. Either gesture opens the five-sector mode selector; use
+  the same selector to leave Vibe mode.
+- The CoreS3 build uses VibeStackChan's `FAST`, `FORK`, `SEND`, Agent/Action
+  layer, and rear-touch behavior. Tap the rear sensor to start recording, tap
+  it again to stop, then hold it to send.
+- The StopWatch build uses VibeWatch's touchscreen and physical-button
+  controls. A yellow-button hold is reserved for the parent mode selector.
+- Vibe mode pauses StreetPass, step updates, Timekeeper, and the regular
+  Wi-Fi/USB application processing. They resume after selecting another mode.
 
 ## Check for Updates
 

@@ -4,6 +4,9 @@
 
 CoreS3とM5Stack StopWatchの画像顔ビルドには、会話、ぐるぐる、タイムキーパー、旅モードの4つの体験モードがあります。AtomS3R Chatbotは従来どおり会話とぐるぐる操作に対応し、4分割のモード選択画面、タイムキーパー、旅モードには対応しません。
 
+source build専用のVibe連携環境では、5つ目のVibeモードが追加されます。依存versionと操作は
+[Vibeモード連携ガイド](../integrations/vibe/README.md)を参照してください。
+
 ## モード選択
 
 ### CoreS3

@@ -13,6 +13,7 @@
 - A boot-scoped `bootId` in `device.info` on all three targets.
 - Current mode, Pomodoro configuration, and four versioned `device.info` capabilities on CoreS3/StopWatch.
 - Paired Japanese/English experience-control and Timekeeper protocol documents.
+- Source-build VibeWatch/VibeStackChan modes, pinned submodules, and a paired integration guide.
 
 ### Changed
 
