@@ -98,7 +98,7 @@ Vibe連携envは、StopWatchではGOROmanさんの
 
 ```sh
 git submodule update --init --recursive
-pio run -c integrations/vibe/platformio.ini -e m5stack-cores3-vibewatch
+pio run -c integrations/vibe/platformio.ini -e m5stack-cores3-vibestackchan
 pio run -c integrations/vibe/platformio.ini -e m5stack-stopwatch-vibewatch
 ```
 

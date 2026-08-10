@@ -12,8 +12,8 @@
       "path": "external/VibeStackChan",
       "url": "https://github.com/Corvelis/VibeStackChan.git",
       "branch": "main",
-      "release": "v0.1.0",
-      "commit": "7bf2a17a0f1ff0ac07505d6724c9ca2e95181b29"
+      "release": "v0.1.1",
+      "commit": "8384b758b61cea3939be34148c01fa7631e0fbe0"
     }
   }
 }

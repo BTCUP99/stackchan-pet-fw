@@ -1,4 +1,4 @@
-#include "VibeWatchMode.h"
+#include "VibeMode.h"
 
 #include "config.h"
 
@@ -11,10 +11,10 @@
 class NimBLEServer;
 class NimBLEConnInfo;
 bool configureEmbeddedVibeWatchBleIdentity();
-bool attachStreetPassToVibeWatchBle(NimBLEServer* server);
+bool attachStreetPassToVibeBle(NimBLEServer* server);
 void resetStreetPassSharedBleState();
 
-namespace VibeWatchMode {
+namespace VibeMode {
 void onEmbeddedHidSubscribed(NimBLEConnInfo& connection);
 void onEmbeddedHidConnParamsUpdated(NimBLEConnInfo& connection);
 }
@@ -22,9 +22,9 @@ void onEmbeddedHidConnParamsUpdated(NimBLEConnInfo& connection);
 // Compile GOROman's reference firmware into this translation unit while
 // keeping Arduino's real setup()/loop() in the parent Stack-chan firmware.
 #define VIBEWATCH_CONFIGURE_BLE_IDENTITY() configureEmbeddedVibeWatchBleIdentity()
-#define VIBEWATCH_BEFORE_BLE_SERVER_START(server) attachStreetPassToVibeWatchBle(server)
-#define VIBEWATCH_ON_HID_SUBSCRIBED(connection) VibeWatchMode::onEmbeddedHidSubscribed(connection)
-#define VIBEWATCH_ON_HID_CONN_PARAMS_UPDATED(connection) VibeWatchMode::onEmbeddedHidConnParamsUpdated(connection)
+#define VIBEWATCH_BEFORE_BLE_SERVER_START(server) attachStreetPassToVibeBle(server)
+#define VIBEWATCH_ON_HID_SUBSCRIBED(connection) VibeMode::onEmbeddedHidSubscribed(connection)
+#define VIBEWATCH_ON_HID_CONN_PARAMS_UPDATED(connection) VibeMode::onEmbeddedHidConnParamsUpdated(connection)
 #define setup vibeWatchReferenceSetup
 #define loop vibeWatchReferenceLoop
 #include "generated/vibewatch/main.cpp"
@@ -57,7 +57,7 @@ bool configureEmbeddedVibeWatchBleIdentity() {
     return typeSet && address.isStatic();
 }
 
-namespace VibeWatchMode {
+namespace VibeMode {
 namespace {
 
 bool embeddedActive = false;
@@ -475,4 +475,4 @@ void onEmbeddedHidConnParamsUpdated(NimBLEConnInfo& connection) {
                   static_cast<unsigned>(connection.getConnTimeout()) * 10U);
 }
 
-}  // namespace VibeWatchMode
+}  // namespace VibeMode

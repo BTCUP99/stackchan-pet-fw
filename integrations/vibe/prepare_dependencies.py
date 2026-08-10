@@ -466,7 +466,7 @@ def generate_vibestackchan() -> None:
 
 if environment_name == "m5stack-stopwatch-vibewatch":
     generate_vibewatch()
-elif environment_name == "m5stack-cores3-vibewatch":
+elif environment_name == "m5stack-cores3-vibestackchan":
     generate_vibestackchan()
 else:
     raise RuntimeError(f"Unsupported Vibe dependency environment: {environment_name}")

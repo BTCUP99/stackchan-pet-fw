@@ -1,4 +1,4 @@
-#include "VibeWatchMode.h"
+#include "VibeMode.h"
 
 #include <VibeStackChanApp.h>
 
@@ -6,7 +6,7 @@
 
 class NimBLEServer;
 
-bool attachStreetPassToVibeWatchBle(NimBLEServer* server);
+bool attachStreetPassToVibeBle(NimBLEServer* server);
 void resetStreetPassSharedBleState();
 extern MotionController motionController;
 
@@ -19,20 +19,20 @@ void configureHooksOnce() {
         return;
     }
     VibeStackChanApp::EmbeddedHooks hooks;
-    hooks.beforeBleServerStart = attachStreetPassToVibeWatchBle;
+    hooks.beforeBleServerStart = attachStreetPassToVibeBle;
     hooks.beforeBleTransportStop = resetStreetPassSharedBleState;
     VibeStackChanApp::configureEmbeddedHooks(hooks);
     hooksConfigured = true;
 }
 
 VibeStackChanApp::TransportPowerProfile mapPowerProfile(
-    VibeWatchMode::TransportPowerProfile profile) {
+    VibeMode::TransportPowerProfile profile) {
     switch (profile) {
-        case VibeWatchMode::TransportPowerProfile::Background:
+        case VibeMode::TransportPowerProfile::Background:
             return VibeStackChanApp::TransportPowerProfile::Background;
-        case VibeWatchMode::TransportPowerProfile::ScreenOff:
+        case VibeMode::TransportPowerProfile::ScreenOff:
             return VibeStackChanApp::TransportPowerProfile::ScreenOff;
-        case VibeWatchMode::TransportPowerProfile::Active:
+        case VibeMode::TransportPowerProfile::Active:
         default:
             return VibeStackChanApp::TransportPowerProfile::Active;
     }
@@ -48,7 +48,7 @@ void synchronizeParentMotion() {
 
 }  // namespace
 
-namespace VibeWatchMode {
+namespace VibeMode {
 
 bool begin() {
     configureHooksOnce();
@@ -104,4 +104,4 @@ bool bleLinkConnected() {
     return VibeStackChanApp::bleLinkConnected();
 }
 
-}  // namespace VibeWatchMode
+}  // namespace VibeMode

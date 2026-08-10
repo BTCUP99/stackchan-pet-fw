@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-namespace VibeWatchMode {
+namespace VibeMode {
 
 enum class TransportPowerProfile : uint8_t {
   Active,
@@ -21,7 +21,7 @@ void end();
 
 // Updates input, BLE RPC processing, feedback, and rendering for one loop.
 // Call this in normal modes as well so the resident Codex RPC channel remains
-// serviced while the VibeWatch UI is suspended.
+// serviced while the Vibe UI is suspended.
 void update(uint32_t now);
 
 // Controls whether the embedded UI may accept input and render. BLE/RPC state
@@ -37,21 +37,21 @@ void updateBackTouch(bool detected);
 // Releases any HID controls before the parent mode selector covers the UI.
 void pauseInputs();
 
-// Repaints VibeWatch after the parent mode selector closes.
+// Repaints the target-specific Vibe UI after the parent mode selector closes.
 void redraw();
 
 bool active();
 
 // Keeps the same macOS IOHID connection while asking the BLE central for a
-// progressively lower-duty-cycle link outside the interactive VibeWatch UI.
+// progressively lower-duty-cycle link outside the interactive Vibe UI.
 void setTransportPowerProfile(TransportPowerProfile profile);
 
-// True only after the host subscribes to the VibeWatch HID input report.
+// True only after the host subscribes to the Vibe HID input report.
 bool hidConnected();
 
 // True as soon as a BLE central has an active connection to the resident
-// VibeWatch server. This deliberately does not wait for the vendor input
+// Vibe server. This deliberately does not wait for the vendor input
 // subscription: display-off sleep must not race macOS HID discovery.
 bool bleLinkConnected();
 
-}  // namespace VibeWatchMode
+}  // namespace VibeMode

@@ -4,9 +4,19 @@ Import("env")
 
 
 project_dir = Path(env.subst("$PROJECT_DIR"))
+environment_name = env.subst("$PIOENV")
 source_path = project_dir / "src" / "main.cpp"
 generated_path = project_dir / "integrations" / "vibe" / "generated" / "main.cpp"
 source = source_path.read_text(encoding="utf-8")
+
+if environment_name == "m5stack-cores3-vibestackchan":
+    vibe_mode_label = "StackChan"
+    vibe_mode_name = "vibestackchan"
+elif environment_name == "m5stack-stopwatch-vibewatch":
+    vibe_mode_label = "Watch"
+    vibe_mode_name = "vibewatch"
+else:
+    raise RuntimeError(f"Unsupported Vibe integration environment: {environment_name}")
 
 
 def replace_once(label: str, old: str, new: str) -> None:
@@ -14,7 +24,7 @@ def replace_once(label: str, old: str, new: str) -> None:
     count = source.count(old)
     if count != 1:
         raise RuntimeError(
-            f"VibeWatch integration marker '{label}' expected once, found {count}"
+            f"Vibe integration marker '{label}' expected once, found {count}"
         )
     source = source.replace(old, new, 1)
 
@@ -24,14 +34,14 @@ def replace_region_once(label: str, start: str, end: str, new: str) -> None:
     global source
     if source.count(start) != 1:
         raise RuntimeError(
-            f"VibeWatch integration region '{label}' start expected once, "
+            f"Vibe integration region '{label}' start expected once, "
             f"found {source.count(start)}"
         )
     start_index = source.index(start)
     end_index = source.find(end, start_index + len(start))
     if end_index < 0:
         raise RuntimeError(
-            f"VibeWatch integration region '{label}' end marker was not found"
+            f"Vibe integration region '{label}' end marker was not found"
         )
     source = source[:start_index] + new + source[end_index:]
 
@@ -40,7 +50,7 @@ replace_once(
     "include",
     '#include "WebSocketServerController.h"\n',
     '#include "WebSocketServerController.h"\n'
-    '#include "VibeWatchMode.h"\n',
+    '#include "VibeMode.h"\n',
 )
 
 replace_once(
@@ -49,7 +59,7 @@ replace_once(
     "namespace Usb = UsbSerialProtocol;\n\n"
     "// Dependency-backed mode value. AppState.h remains unchanged so normal\n"
     "// builds keep their existing mode ABI.\n"
-    "constexpr ExperienceMode kVibeWatchExperienceMode =\n"
+    "constexpr ExperienceMode kVibeExperienceMode =\n"
     "  static_cast<ExperienceMode>(4);\n",
 )
 
@@ -63,7 +73,7 @@ replace_once(
 replace_once(
     "streetpass-shared-ble-attach",
     "void beginStreetPassBle() {\n",
-    "bool attachStreetPassToVibeWatchBle(NimBLEServer* server) {\n"
+    "bool attachStreetPassToVibeBle(NimBLEServer* server) {\n"
     "  if (server == nullptr) {\n"
     "    return false;\n"
     "  }\n"
@@ -72,7 +82,7 @@ replace_once(
     "  }\n\n"
     "  NimBLEDevice::setPower(ESP_PWR_LVL_P3);\n"
     "  streetPassGattServer = server;\n"
-    "  // VibeWatch retains the server callback so its HID subscription and\n"
+    "  // The Vibe controller retains the server callback so its HID subscription and\n"
     "  // connection survive mode changes. StreetPass still receives writes\n"
     "  // through its characteristic callback.\n"
     "  NimBLEService* service = streetPassGattServer->createService(STREETPASS_SERVICE_UUID);\n"
@@ -95,7 +105,7 @@ replace_once(
     "  streetPassBlePaused = true;\n"
     "  streetPassAdvertising = false;\n"
     "  nextStreetPassScanMs = millis() + streetPassInitialScanDelayMs();\n"
-    "  Serial.println(\"[streetpass] attached to resident VibeWatch BLE server\");\n"
+    "  Serial.println(\"[streetpass] attached to resident Vibe BLE server\");\n"
     "  return true;\n"
     "}\n\n"
     "void resetStreetPassSharedBleState() {\n"
@@ -114,7 +124,7 @@ replace_once(
     "  streetPassInfoCharacteristic = nullptr;\n"
     "  streetPassPublicCardCharacteristic = nullptr;\n"
     "  streetPassEncounterWriteCharacteristic = nullptr;\n"
-    "  Serial.println(\"[streetpass] detached from VibeWatch BLE server\");\n"
+    "  Serial.println(\"[streetpass] detached from Vibe BLE server\");\n"
     "}\n\n"
     "void beginStreetPassBle() {\n",
 )
@@ -131,7 +141,7 @@ replace_once(
     "    // mode loop will resume StreetPass scan/advertising on this stack.\n"
     "    streetPassBlePaused = true;\n"
     "    streetPassBleSettleUntilMs = 0;\n"
-    "    Serial.println(\"[streetpass] paused on resident VibeWatch BLE server\");\n"
+    "    Serial.println(\"[streetpass] paused on resident Vibe BLE server\");\n"
     "    return true;\n"
     "  }\n\n"
     "  const bool stopped = NimBLEDevice::deinit(true);\n",
@@ -165,7 +175,7 @@ replace_once(
     "  // Manual M5.Power.lightSleep tears down the macOS HID session. Test the\n"
     "  // BLE link itself instead of waiting for the vendor HID subscription:\n"
     "  // macOS discovery and subscription are asynchronous after reconnect.\n"
-    "  if (VibeWatchMode::bleLinkConnected()) {\n"
+    "  if (VibeMode::bleLinkConnected()) {\n"
     "    return true;\n"
     "  }\n"
     "  if (displayOn || !streetPassController.enabled()) {\n",
@@ -178,8 +188,8 @@ replace_once(
     "const char* streetPassBusyReason() {\n"
     "  // Continuous StreetPass scanning on the shared controller can starve\n"
     "  // the macOS HID link. Keep it paused while any resident peer exists.\n"
-    "  if (VibeWatchMode::bleLinkConnected()) {\n"
-    "    return \"vibewatch_hid\";\n"
+    "  if (VibeMode::bleLinkConnected()) {\n"
+    f'    return "{vibe_mode_name}_hid";\n'
     "  }\n"
     "#if !STACKCHAN_DEVICE_STOPWATCH\n",
 )
@@ -189,8 +199,8 @@ replace_once(
     "  appCommsSuspendedForDisplayOff = true;\n\n"
     "  pendingStateAfterPlayback = false;\n",
     "  appCommsSuspendedForDisplayOff = true;\n"
-    "  VibeWatchMode::setTransportPowerProfile(\n"
-    "    VibeWatchMode::TransportPowerProfile::ScreenOff);\n\n"
+    "  VibeMode::setTransportPowerProfile(\n"
+    "    VibeMode::TransportPowerProfile::ScreenOff);\n\n"
     "  pendingStateAfterPlayback = false;\n",
 )
 
@@ -199,10 +209,10 @@ replace_once(
     "  appCommsSuspendedForDisplayOff = false;\n"
     "  wifiConnectStartedMs = 0;\n",
     "  appCommsSuspendedForDisplayOff = false;\n"
-    "  VibeWatchMode::setTransportPowerProfile(\n"
-    "    experienceMode == kVibeWatchExperienceMode\n"
-    "      ? VibeWatchMode::TransportPowerProfile::Active\n"
-    "      : VibeWatchMode::TransportPowerProfile::Background);\n"
+    "  VibeMode::setTransportPowerProfile(\n"
+    "    experienceMode == kVibeExperienceMode\n"
+    "      ? VibeMode::TransportPowerProfile::Active\n"
+    "      : VibeMode::TransportPowerProfile::Background);\n"
     "  wifiConnectStartedMs = 0;\n",
 )
 
@@ -212,7 +222,7 @@ replace_once(
     '  speechBubbleController.reset("display_off");\n',
     "  audioController.stopForDisplayOff();\n"
     "  if (M5.Speaker.isRunning()) {\n"
-    "    // VibeWatch effects start M5.Speaker outside AudioController, so its\n"
+    "    // Vibe effects start M5.Speaker outside AudioController, so its\n"
     "    // internal speakerEnabled flag cannot reliably describe the hardware.\n"
     "    // Screen-off must always silence a still-running speaker/I2S task.\n"
     "    M5.Speaker.stop();\n"
@@ -227,8 +237,8 @@ replace_once(
     "const char* experienceModeName(ExperienceMode mode) {\n"
     "  switch (mode) {\n",
     "const char* experienceModeName(ExperienceMode mode) {\n"
-    "  if (mode == kVibeWatchExperienceMode) {\n"
-    '    return "vibewatch";\n'
+    "  if (mode == kVibeExperienceMode) {\n"
+    f'    return "{vibe_mode_name}";\n'
     "  }\n"
     "  switch (mode) {\n",
 )
@@ -241,21 +251,21 @@ replace_once(
     '    Serial.printf("[mode] deferred target=%s until playback drains\\n", experienceModeName(mode));\n'
     "    return;\n"
     "  }\n",
-    "  const bool leavingVibeWatch =\n"
-    "    experienceMode == kVibeWatchExperienceMode &&\n"
-    "    mode != kVibeWatchExperienceMode;\n"
+    "  const bool leavingVibeMode =\n"
+    "    experienceMode == kVibeExperienceMode &&\n"
+    "    mode != kVibeExperienceMode;\n"
     "  const bool audioBusy = audioBusyForUiEffects();\n"
-    "  if (audioBusy && !leavingVibeWatch) {\n"
+    "  if (audioBusy && !leavingVibeMode) {\n"
     "    pendingExperienceMode = mode;\n"
     "    pendingExperienceModeValid = true;\n"
     '    Serial.printf("[mode] deferred target=%s until playback drains\\n", experienceModeName(mode));\n'
     "    return;\n"
     "  }\n"
     "  if (audioBusy) {\n"
-    "    // The parent audio updater is intentionally suspended in VibeWatch.\n"
+    "    // The parent audio updater is intentionally suspended in Vibe mode.\n"
     "    // Leave immediately so the selected normal mode can resume it and\n"
     "    // drain any stale Speaking/playback state.\n"
-    '    Serial.printf("[mode] leaving VibeWatch despite suspended audio busy target=%s\\n",\n'
+    '    Serial.printf("[mode] leaving Vibe mode despite suspended audio busy target=%s\\n",\n'
     "                  experienceModeName(mode));\n"
     "  }\n",
 )
@@ -266,8 +276,8 @@ replace_once(
     "  const ExperienceMode previousMode = experienceMode;\n",
     "  pendingExperienceModeValid = false;\n"
     "  const ExperienceMode previousMode = experienceMode;\n"
-    "  if (previousMode == kVibeWatchExperienceMode) {\n"
-    "    VibeWatchMode::end();\n"
+    "  if (previousMode == kVibeExperienceMode) {\n"
+    "    VibeMode::end();\n"
     "    applyDisplayBrightness();\n"
     "    audioController.setVolume(deviceSettings.volume);\n"
     "  }\n",
@@ -279,7 +289,7 @@ replace_once(
     "      (mode == ExperienceMode::Travel && currentState != ChanState::Idle)) {\n",
     "  if (currentState == ChanState::Listening ||\n"
     "      ((mode == ExperienceMode::Travel ||\n"
-    "        mode == kVibeWatchExperienceMode) &&\n"
+    "        mode == kVibeExperienceMode) &&\n"
     "       currentState != ChanState::Idle)) {\n",
 )
 
@@ -292,11 +302,11 @@ replace_once(
     "#if STACKCHAN_GURUGURU_FACE_ENABLED\n"
     "  setGuruguruFaceMode(mode == ExperienceMode::Guruguru, now);\n"
     "#endif\n"
-    "  if (mode == kVibeWatchExperienceMode) {\n"
-    '    deinitStreetPassBle("vibewatch_mode");\n'
+    "  if (mode == kVibeExperienceMode) {\n"
+    f'    deinitStreetPassBle("{vibe_mode_name}_mode");\n'
     "    faceController.setEnabled(false);\n"
-    "    if (!VibeWatchMode::begin()) {\n"
-    '      Serial.println("[vibewatch] start failed; returning to conversation");\n'
+    "    if (!VibeMode::begin()) {\n"
+    '      Serial.println("[vibe] start failed; returning to conversation");\n'
     "      mode = ExperienceMode::Conversation;\n"
     "    }\n"
     "  }\n"
@@ -309,7 +319,7 @@ replace_once(
     "                            !timekeeperDurationMenuVisible && !travelFacePickerVisible);\n",
     "  faceController.setEnabled(displayOn && !infoScreenVisible && !experienceModeMenuVisible &&\n"
     "                            !timekeeperDurationMenuVisible && !travelFacePickerVisible &&\n"
-    "                            experienceMode != kVibeWatchExperienceMode);\n",
+    "                            experienceMode != kVibeExperienceMode);\n",
 )
 
 replace_once(
@@ -365,7 +375,7 @@ replace_once(
     "    boundaryAngleB = 252.0f;\n"
     "    arcStart = 90.0f;\n"
     "    arcEnd = 162.0f;\n"
-    "  } else if (mode == kVibeWatchExperienceMode) {\n"
+    "  } else if (mode == kVibeExperienceMode) {\n"
     "    boundaryAngleA = 252.0f;\n"
     "    boundaryAngleB = 324.0f;\n"
     "    arcStart = 162.0f;\n"
@@ -413,7 +423,7 @@ replace_once(
     "  fillExperienceModeSector(0.0f, 18.0f, ExperienceMode::Guruguru);\n"
     "  fillExperienceModeSector(18.0f, 90.0f, ExperienceMode::Timekeeper);\n"
     "  fillExperienceModeSector(90.0f, 162.0f, ExperienceMode::Travel);\n"
-    "  fillExperienceModeSector(162.0f, 234.0f, kVibeWatchExperienceMode);\n\n"
+    "  fillExperienceModeSector(162.0f, 234.0f, kVibeExperienceMode);\n\n"
     "  const int32_t cx = M5.Display.width() / 2;\n"
     "  const int32_t cy = M5.Display.height() / 2;\n"
     "  const int32_t radius = min(M5.Display.width(), M5.Display.height()) / 2 - 2;\n"
@@ -429,7 +439,7 @@ replace_once(
     "  drawExperienceModeBevel(cx, cy, radius, ExperienceMode::Guruguru);\n"
     "  drawExperienceModeBevel(cx, cy, radius, ExperienceMode::Timekeeper);\n"
     "  drawExperienceModeBevel(cx, cy, radius, ExperienceMode::Travel);\n"
-    "  drawExperienceModeBevel(cx, cy, radius, kVibeWatchExperienceMode);\n"
+    "  drawExperienceModeBevel(cx, cy, radius, kVibeExperienceMode);\n"
     "  M5.Display.drawCircle(cx, cy, radius, TFT_BLACK);\n"
     "  M5.Display.fillCircle(cx, cy, 6, separator);\n\n"
     '  drawExperienceModeLabel("音声対話", cx, cy - 112, ExperienceMode::Conversation);\n'
@@ -437,8 +447,8 @@ replace_once(
     '  drawExperienceModeLabel("ストップ", cx + 69, cy + 79, ExperienceMode::Timekeeper);\n'
     '  drawExperienceModeLabel("ウォッチ", cx + 69, cy + 102, ExperienceMode::Timekeeper);\n'
     '  drawExperienceModeLabel("旅モード", cx - 69, cy + 94, ExperienceMode::Travel);\n'
-    '  drawExperienceModeLabel("Vibe", cx - 108, cy - 48, kVibeWatchExperienceMode);\n'
-    '  drawExperienceModeLabel("Watch", cx - 108, cy - 25, kVibeWatchExperienceMode);\n',
+    '  drawExperienceModeLabel("Vibe", cx - 108, cy - 48, kVibeExperienceMode);\n'
+    f'  drawExperienceModeLabel("{vibe_mode_label}", cx - 108, cy - 25, kVibeExperienceMode);\n',
 )
 
 replace_region_once(
@@ -487,7 +497,7 @@ replace_region_once(
     "    {0.0f, 18.0f, ExperienceMode::Guruguru},\n"
     "    {18.0f, 90.0f, ExperienceMode::Timekeeper},\n"
     "    {90.0f, 162.0f, ExperienceMode::Travel},\n"
-    "    {162.0f, 234.0f, kVibeWatchExperienceMode},\n"
+    "    {162.0f, 234.0f, kVibeExperienceMode},\n"
     "  };\n"
     "  for (const auto& sector : sectors) {\n"
     "    M5.Display.fillArc(cx, cy, radius, 0, sector.start, sector.end,\n"
@@ -513,9 +523,9 @@ replace_region_once(
     '  drawExperienceModeLabel("旅モード", 112, 185,\n'
     "                          ExperienceMode::Travel);\n"
     '  drawExperienceModeLabel("VibeStack", 88, 80,\n'
-    "                          kVibeWatchExperienceMode);\n"
+    "                          kVibeExperienceMode);\n"
     '  drawExperienceModeLabel("Chan", 88, 106,\n'
-    "                          kVibeWatchExperienceMode);\n"
+    "                          kVibeExperienceMode);\n"
     "  return;\n"
     "  }\n",
 )
@@ -548,7 +558,7 @@ replace_region_once(
     "  } else if (angle < 252.0f) {\n"
     "    selected = ExperienceMode::Travel;\n"
     "  } else {\n"
-    "    selected = kVibeWatchExperienceMode;\n"
+    "    selected = kVibeExperienceMode;\n"
     "  }\n"
     "  experienceModeMenuSelection = selected;\n"
     "  requestExperienceMode(selected, now);\n"
@@ -574,10 +584,10 @@ replace_once(
     '      Serial.println("[gesture] mode_menu close right_to_left");\n'
     "      return;\n"
     "    }\n"
-    "    if (experienceMode == kVibeWatchExperienceMode) {\n"
+    "    if (experienceMode == kVibeExperienceMode) {\n"
     "      // VibeStackChan owns its in-mode SET button. A completed parent\n"
     "      // settings swipe only cancels any pressed HID control.\n"
-    "      VibeWatchMode::pauseInputs();\n"
+    "      VibeMode::pauseInputs();\n"
     '      Serial.println("[gesture] VibeStackChan settings swipe ignored");\n'
     "      return;\n"
     "    }\n"
@@ -591,8 +601,8 @@ replace_once(
     "  timekeeperDurationMenuVisible = false;\n"
     "  experienceModeMenuVisible = true;\n",
     "  timekeeperDurationMenuVisible = false;\n"
-    "  if (experienceMode == kVibeWatchExperienceMode) {\n"
-    "    VibeWatchMode::pauseInputs();\n"
+    "  if (experienceMode == kVibeExperienceMode) {\n"
+    "    VibeMode::pauseInputs();\n"
     "  }\n"
     "  experienceModeMenuVisible = true;\n",
 )
@@ -611,14 +621,14 @@ replace_once(
     "  }\n",
     "  experienceModeMenuVisible = false;\n"
     "  const bool vibeWatchActive =\n"
-    "    experienceMode == kVibeWatchExperienceMode;\n"
+    "    experienceMode == kVibeExperienceMode;\n"
     "  faceController.setEnabled(displayOn && !infoScreenVisible &&\n"
     "                            !timekeeperDurationMenuVisible &&\n"
     "                            !travelFacePickerVisible &&\n"
     "                            !vibeWatchActive);\n"
     "  if (displayOn && !infoScreenVisible) {\n"
     "    if (vibeWatchActive) {\n"
-    "      VibeWatchMode::redraw();\n"
+    "      VibeMode::redraw();\n"
     "    } else {\n"
     "      faceController.redrawNow();\n"
     "      if (experienceMode == ExperienceMode::Timekeeper) {\n"
@@ -650,12 +660,12 @@ replace_once(
     "  } else if (angle < 252.0f) {\n"
     "    selected = ExperienceMode::Travel;\n"
     "  } else {\n"
-    "    selected = kVibeWatchExperienceMode;\n"
+    "    selected = kVibeExperienceMode;\n"
     "  }\n",
 )
 
 replace_once(
-    "yellow-short-vibewatch",
+    "yellow-short-vibe",
     "    if (wasLongPress || experienceModeMenuVisible) {\n"
     "      hideExperienceModeMenu();\n"
     "      return;\n"
@@ -665,8 +675,8 @@ replace_once(
     "      hideExperienceModeMenu();\n"
     "      return;\n"
     "    }\n"
-    "    if (experienceMode == kVibeWatchExperienceMode) {\n"
-    "      // VibeWatch consumes the completed short press below.\n"
+    "    if (experienceMode == kVibeExperienceMode) {\n"
+    "      // The Vibe controller consumes the completed short press below.\n"
     "      return;\n"
     "    }\n"
     "    if (timekeeperDurationMenuVisible) {\n",
@@ -677,14 +687,14 @@ replace_once(
     "  if (stopwatchYellowButtonPressed && M5.BtnA.isPressed() &&\n"
     "      !stopwatchYellowButtonLongHandled &&\n"
     "      monotonicMs() - stopwatchYellowButtonPressedAtMs >= 700ULL) {\n",
-    "  if (experienceMode == kVibeWatchExperienceMode &&\n"
+    "  if (experienceMode == kVibeExperienceMode &&\n"
     "      stopwatchYellowButtonPressed && M5.BtnB.isPressed()) {\n"
-    "    // VibeWatch owns the yellow+blue chord. Once blue joins, this gesture\n"
+    "    // The Vibe controller owns the yellow+blue chord. Once blue joins, this gesture\n"
     "    // must never turn into the parent mode-selector hold.\n"
     "    stopwatchYellowButtonPressed = false;\n"
     "    stopwatchYellowButtonLongHandled = false;\n"
     "    stopwatchYellowButtonPressedAtMs = 0;\n"
-    '    Serial.println("[button] yellow mode hold canceled for VibeWatch chord");\n'
+    '    Serial.println("[button] yellow mode hold canceled for Vibe chord");\n'
     "  }\n"
     "  if (stopwatchYellowButtonPressed && M5.BtnA.isPressed() &&\n"
     "      !stopwatchYellowButtonLongHandled &&\n"
@@ -692,7 +702,7 @@ replace_once(
 )
 
 replace_once(
-    "vibewatch-owns-buttons",
+    "vibe-owns-buttons",
     "  if (experienceMode == ExperienceMode::Travel && !infoScreenVisible &&\n"
     "      M5.BtnA.wasDecideClickCount()) {\n"
     "    handleTravelYellowClickCount(M5.BtnA.getClickCount());\n"
@@ -704,7 +714,7 @@ replace_once(
     "    handleTravelYellowClickCount(M5.BtnA.getClickCount());\n"
     "    return;\n"
     "  }\n"
-    "  if (experienceMode == kVibeWatchExperienceMode) {\n"
+    "  if (experienceMode == kVibeExperienceMode) {\n"
     "    // The parent only reserves yellow-button hold for the mode selector.\n"
     "    return;\n"
     "  }\n"
@@ -712,7 +722,7 @@ replace_once(
 )
 
 replace_once(
-    "cores3-vibewatch-owns-touch",
+    "cores3-vibestackchan-owns-touch",
     "#if STACKCHAN_TIMEKEEPER_ENABLED\n"
     "  if (updateExperienceModeMenuTouch(touch, now)) {\n"
     "    return;\n"
@@ -725,8 +735,8 @@ replace_once(
     "  }\n"
     "#if STACKCHAN_DEVICE_CORES3\n"
     "  // Edge swipes and the parent mode selector run above. All ordinary\n"
-    "  // CoreS3 touches belong to VibeWatch while its UI is visible.\n"
-    "  if (experienceMode == kVibeWatchExperienceMode &&\n"
+    "  // CoreS3 touches belong to VibeStackChan while its UI is visible.\n"
+    "  if (experienceMode == kVibeExperienceMode &&\n"
     "      !experienceModeMenuVisible) {\n"
     "    return;\n"
     "  }\n"
@@ -734,13 +744,13 @@ replace_once(
 )
 
 replace_once(
-    "cores3-vibewatch-back-touch",
+    "cores3-vibestackchan-back-touch",
     "#if STACKCHAN_TIMEKEEPER_ENABLED\n"
     "  if (handleTimekeeperBackTouch(now, backTouchDetected)) {\n",
-    "  if (experienceMode == kVibeWatchExperienceMode) {\n"
+    "  if (experienceMode == kVibeExperienceMode) {\n"
     "    // VibeStackChan uses a rear tap to start microphone input and a\n"
     "    // rear hold to stop and send. Release filtering remains active.\n"
-    "    VibeWatchMode::updateBackTouch(backTouchDetected);\n"
+    "    VibeMode::updateBackTouch(backTouchDetected);\n"
     "    return;\n"
     "  }\n\n"
     "#if STACKCHAN_TIMEKEEPER_ENABLED\n"
@@ -753,7 +763,7 @@ replace_once(
     "  const unsigned long loopStartedAt = now;\n",
     "  unsigned long now = millis();\n"
     "  const unsigned long loopStartedAt = now;\n"
-    "  if (experienceMode == kVibeWatchExperienceMode) {\n"
+    "  if (experienceMode == kVibeExperienceMode) {\n"
     "    updateButtons(now);\n"
     "#if STACKCHAN_DEVICE_CORES3\n"
     "    // CoreS3 uses its existing left-edge swipe for the parent selector.\n"
@@ -767,18 +777,18 @@ replace_once(
     "      updateTouch(now);\n"
     "    }\n"
     "#endif\n"
-    "    if (experienceMode != kVibeWatchExperienceMode) {\n"
+    "    if (experienceMode != kVibeExperienceMode) {\n"
     "      return;\n"
     "    }\n"
     "#if STACKCHAN_DEVICE_CORES3\n"
     "    updateBackTouch(now);\n"
     "#endif\n"
-    "    VibeWatchMode::setUiVisible(displayOn &&\n"
+    "    VibeMode::setUiVisible(displayOn &&\n"
     "                                !experienceModeMenuVisible);\n"
-    "    VibeWatchMode::update(now);\n"
+    "    VibeMode::update(now);\n"
     "    return;\n"
     "  }\n"
-    "  VibeWatchMode::update(now);\n",
+    "  VibeMode::update(now);\n",
 )
 
 replace_once(
@@ -787,11 +797,11 @@ replace_once(
     "  updatePendingExperienceMode(now);\n",
     "  updateButtons(now);\n"
     "  updatePendingExperienceMode(now);\n"
-    "  // VibeWatch owns BLE activity while its UI is active. Stop this\n"
+    "  // Vibe mode owns BLE activity while its UI is active. Stop this\n"
     "  // normal-mode loop as\n"
     "  // soon as a button or deferred transition enters it, before the later\n"
     "  // StreetPass updater has a chance to recreate its BLE transport.\n"
-    "  if (experienceMode == kVibeWatchExperienceMode) {\n"
+    "  if (experienceMode == kVibeExperienceMode) {\n"
     "    return;\n"
     "  }\n",
 )
@@ -803,9 +813,9 @@ replace_once(
     "#if STACKCHAN_GURUGURU_FACE_ENABLED\n",
     "  updateMicStatusOverlay();\n"
     "  updateTouch(now);\n"
-    "  // CoreS3 enters VibeWatch from the touch selector. As above, do not\n"
+    "  // CoreS3 enters VibeStackChan from the touch selector. As above, do not\n"
     "  // allow the remainder of this normal-mode loop to restart StreetPass.\n"
-    "  if (experienceMode == kVibeWatchExperienceMode) {\n"
+    "  if (experienceMode == kVibeExperienceMode) {\n"
     "    return;\n"
     "  }\n"
     "#if STACKCHAN_GURUGURU_FACE_ENABLED\n",
@@ -814,4 +824,4 @@ replace_once(
 generated_path.parent.mkdir(parents=True, exist_ok=True)
 if not generated_path.exists() or generated_path.read_text(encoding="utf-8") != source:
     generated_path.write_text(source, encoding="utf-8")
-    print(f"[vibewatch] generated {generated_path.relative_to(project_dir)}")
+    print(f"[vibe] generated {generated_path.relative_to(project_dir)}")
