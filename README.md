@@ -1,5 +1,7 @@
 # Stack-chan Multi-Device Controller
 
+> **`mac-bridge` branch** — firmware for [Jax StopWatch](https://github.com/BTCUP99/jax-stopwatch). See [MAC_BRIDGE.md](MAC_BRIDGE.md) for what changed from upstream.
+
 [日本語](README.md) | [English](README.en.md)
 
 CoreS3 + ｽﾀｯｸﾁｬﾝ、M5Stack StopWatch、AtomS3R Chatbot向けの共通ファームウェアです。

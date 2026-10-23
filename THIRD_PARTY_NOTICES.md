@@ -18,7 +18,9 @@ downloads the libraries listed in `platformio.ini` during setup.
 The WebSocket endpoint is implemented with ESP-IDF `esp_http_server`, which is
 provided by the Arduino-ESP32 framework.
 
-The firmware uses M5GFX's `efontJA_12` and `efontJA_16` data. Its upstream
+The firmware uses M5GFX's `efontJA_12` and `efontJA_16` data (the `mac-bridge`
+branch also uses `efontCN_12` for Chinese subtitles, from the same /efont/ project
+under the same license). Its upstream
 notice is reproduced below as required for binary distribution:
 
 > Copyright 2000-2001 /efont/ The Electronic Font Open Laboratory. All rights

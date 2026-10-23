@@ -1,10 +1,13 @@
 #include "FaceController.h"
 
+#include "AvatarStore.h"
+
 #include "Utf8Utils.h"
 #include "config.h"
 
 namespace {
 constexpr uint16_t kSpeechBubbleTransparentColor = TFT_MAGENTA;
+constexpr const char* kHappyFacePath = "/happy.jpg";  // only uploaded avatar sets provide it
 
 String speechBubbleSanitizeText(const char* text) {
   String input(text == nullptr ? "" : text);
@@ -40,6 +43,9 @@ void FaceController::begin() {
 #else
   faceAssetStatus_ = detectFaceAssetStatus(LittleFS);
 #endif
+  const String avatar = AvatarStore::loadActive();
+  avatarDir_ = avatar.isEmpty() ? String() : String("/av/") + avatar;
+  Serial.printf("[face.avatar] %s\n", avatar.isEmpty() ? "built-in" : avatar.c_str());
   Serial.printf("[face.assets] mode=%s schema=%u manifest=%d valid=%d error=%s missing=%s\n",
                 faceAssetModeName(faceAssetStatus_.mode),
                 static_cast<unsigned>(faceAssetStatus_.schemaVersion),
@@ -1115,6 +1121,119 @@ void FaceController::setClockText(const String& text, bool valid) {
   }
 }
 
+void FaceController::setNoticeBadges(const uint8_t* kinds, const uint8_t* counts, uint8_t count) {
+  count = min<uint8_t>(count, kNoticeSlots);
+  bool sameKinds = count == noticeCount_;
+  bool sameCounts = sameKinds;
+  for (uint8_t i = 0; i < count && sameKinds; ++i) {
+    sameKinds = noticeKinds_[i] == kinds[i];
+    sameCounts = sameKinds && noticeCounts_[i] == counts[i];
+  }
+  if (sameCounts) {
+    return;
+  }
+  for (uint8_t i = 0; i < count; ++i) {
+    noticeKinds_[i] = kinds[i];
+    noticeCounts_[i] = counts[i];
+  }
+  noticeCount_ = count;
+  if (!sameKinds) {
+    // A badge appeared or left: repaint the face underneath on the next idle frame.
+    noticeLayoutDirty_ = true;
+    return;
+  }
+  batteryOverlayDirty_ = true;  // badges are drawn with the status overlay
+  bool deferOverlayDraw = false;
+#if STACKCHAN_VOICE_SPRITE_ANIMATION_ENABLED
+  deferOverlayDraw = state_ == ChanState::Speaking && voiceSpriteAnimationAllowed();
+#endif
+  if (enabled_ && !deferOverlayDraw) {
+    drawBatteryOverlay();
+  }
+}
+
+void FaceController::setLinkState(uint8_t state) {
+  if (linkState_ == state) {
+    return;
+  }
+  linkState_ = state;
+  batteryOverlayDirty_ = true;
+  bool deferOverlayDraw = false;
+#if STACKCHAN_VOICE_SPRITE_ANIMATION_ENABLED
+  deferOverlayDraw = state_ == ChanState::Speaking && voiceSpriteAnimationAllowed();
+#endif
+  if (enabled_ && !deferOverlayDraw) {
+    drawBatteryOverlay();
+  }
+}
+
+void FaceController::setAgentLabel(const char* label) {
+  const String next = label != nullptr ? String(label) : String();
+  if (agentLabel_ == next) {
+    return;
+  }
+  agentLabel_ = next;
+  batteryOverlayDirty_ = true;  // drawn inside the opaque status row
+  bool deferOverlayDraw = false;
+#if STACKCHAN_VOICE_SPRITE_ANIMATION_ENABLED
+  deferOverlayDraw = state_ == ChanState::Speaking && voiceSpriteAnimationAllowed();
+#endif
+  if (enabled_ && !deferOverlayDraw) {
+    drawBatteryOverlay();
+  }
+}
+
+void FaceController::setAvatar(const String& id) {
+  avatarDir_ = id.isEmpty() ? String() : String("/av/") + id;
+  for (uint8_t i = 0; i < kImagePathCacheCount; ++i) {
+    imagePathCacheReady_[i] = false;
+  }
+  happyDurationMs_ = 0;
+  happyUntilMs_ = 0;
+#if STACKCHAN_VOICE_SPRITE_ANIMATION_ENABLED
+  releaseVoiceSpriteCache();  // decoded frames of the previous set
+#endif
+  if (enabled_) {
+    currentPath_ = "";
+    showBaseFace();
+  }
+}
+
+void FaceController::showHappy(uint32_t durationMs) {
+  if (durationMs == 0 || resolvedImagePath(kHappyFacePath).isEmpty()) {
+    return;  // the built-in face has no happy frame
+  }
+  happyDurationMs_ = min<uint32_t>(durationMs, 5000);
+  happyRequestedMs_ = millis();
+  happyUntilMs_ = 0;
+}
+
+bool FaceController::updateHappyFace(unsigned long now) {
+  if (happyDurationMs_ == 0) {
+    return false;
+  }
+  if (happyUntilMs_ == 0) {
+    if (state_ != ChanState::Idle) {
+      // Pending behind the closing speech; recording or a long wait cancels it.
+      if (state_ == ChanState::Listening || now - happyRequestedMs_ > 5000) {
+        happyDurationMs_ = 0;
+      }
+      return false;
+    }
+    happyUntilMs_ = now + happyDurationMs_;
+    if (happyUntilMs_ == 0) happyUntilMs_ = 1;
+    currentPath_ = "";
+  } else if (state_ != ChanState::Idle || static_cast<long>(now - happyUntilMs_) >= 0) {
+    happyDurationMs_ = 0;
+    happyUntilMs_ = 0;
+    currentPath_ = "";
+    showBaseFace();
+    return true;
+  }
+  drawFace(kHappyFacePath);  // no-op while it is already on screen
+  return true;
+}
+
 void FaceController::setStepCount(uint32_t steps, bool valid) {
   if (stepCount_ == steps && stepCountValid_ == valid) {
     return;
@@ -1380,6 +1499,20 @@ void FaceController::update(unsigned long now) {
     return;
   }
 #endif
+
+  if (noticeLayoutDirty_) {
+    noticeLayoutDirty_ = false;
+    currentPath_ = "";
+    showBaseFace();
+    return;
+  }
+
+  if (updateHappyFace(now)) {
+    if (batteryOverlayDirty_ || clockOverlayDirty_) {
+      drawBatteryOverlay();
+    }
+    return;
+  }
 
   const bool affectionDeltaExpired = affectionDeltaUntilMs_ != 0 && now >= affectionDeltaUntilMs_;
   if (affectionDeltaExpired && guruguruStep_ > 0) {
@@ -2394,6 +2527,10 @@ void FaceController::showBaseFace() {
     }
     return;
   }
+  if (happyUntilMs_ != 0 && state_ == ChanState::Idle) {
+    drawFace(kHappyFacePath);
+    return;
+  }
 #if STACKCHAN_VOICE_SPRITE_ANIMATION_ENABLED
   if (voiceSpriteAnimationAllowed()) {
     const uint8_t mouth = state_ == ChanState::Speaking ? voiceMouthIndex_ : 0;
@@ -2929,7 +3066,9 @@ String FaceController::resolvedImagePath(const char* path) const {
   }
 
   String resolved;
-  if (LittleFS.exists(path)) {
+  if (!avatarDir_.isEmpty() && LittleFS.exists(avatarDir_ + path)) {
+    resolved = avatarDir_ + path;  // the uploaded set wins; anything it lacks stays built-in
+  } else if (LittleFS.exists(path)) {
     resolved = path;
   } else {
     const char* ext = strrchr(path, '.');
@@ -2992,6 +3131,13 @@ bool FaceController::drawFaceImageTarget(Target& target, File& file, const char*
 template <typename Target>
 void FaceController::drawRoundAffectionOverlayTarget(Target& target, unsigned long now) {
   lastAffectionOverlayMs_ = now;
+#if !STACKCHAN_AFFECTION_ENABLED
+  (void)target;
+  affectionDeltaUntilMs_ = 0;
+  affectionDelta_ = 0;
+  affectionOverlayDirty_ = false;
+  return;
+#endif
   if (affectionDeltaUntilMs_ != 0 && now >= affectionDeltaUntilMs_) {
     affectionDeltaUntilMs_ = 0;
     affectionDelta_ = 0;
@@ -3039,6 +3185,12 @@ void FaceController::drawRoundAffectionOverlayTarget(Target& target, unsigned lo
 
 template <typename Target>
 void FaceController::drawRoundBatteryOverlayTarget(Target& target) {
+#if STACKCHAN_MAC_BRIDGE_HOME
+  drawHomeStatusTarget(target);
+  batteryOverlayDirty_ = false;
+  clockOverlayDirty_ = false;
+  stepOverlayDirty_ = false;
+#else
   const unsigned long now = millis();
   const int32_t cx = M5.Display.width() / 2;
   const int32_t w = 30;
@@ -3188,6 +3340,188 @@ void FaceController::drawRoundBatteryOverlayTarget(Target& target) {
   batteryOverlayDirty_ = false;
   clockOverlayDirty_ = false;
   stepOverlayDirty_ = false;
+#endif
+}
+
+// Mac bridge home: clock at the top of the ring, battery at the bottom, X notice
+// badges down the right edge. Each piece paints its own black backing.
+template <typename Target>
+void FaceController::drawHomeStatusTarget(Target& target) {
+  const int32_t cx = M5.Display.width() / 2;
+  const int32_t cy = M5.Display.height() / 2;
+  const int32_t height = M5.Display.height();
+
+  if (!clockText_.isEmpty()) {
+    target.fillRoundRect(cx - 64, 12, 128, 42, 21, TFT_BLACK);
+    target.setFont(&fonts::FreeSansBold18pt7b);
+    target.setTextSize(1);
+    target.setTextDatum(middle_center);
+    target.setTextColor(clockValid_ ? M5.Display.color565(242, 244, 243) : M5.Display.color565(112, 116, 118),
+                        TFT_BLACK);
+    target.drawString(clockText_, cx, 34);
+  }
+
+  // One status row: assistant name, link icon, battery, percentage, centred together.
+  const int32_t pillW = 180;
+  const int32_t pillH = 26;
+  const int32_t pillY = height - 46;
+  const int32_t rowY = pillY + pillH / 2;
+  target.fillRoundRect(cx - pillW / 2, pillY, pillW, pillH, 13, TFT_BLACK);
+  const uint16_t border = M5.Display.color565(201, 209, 206);
+  const String percent = batteryLevel_ >= 0 ? String(batteryLevel_) + "%" : String("--");
+  target.setTextSize(1);
+  target.setFont(&fonts::DejaVu12);
+  const int32_t agentW = agentLabel_.isEmpty() ? 0 : target.textWidth(agentLabel_);
+  target.setFont(&fonts::FreeSans9pt7b);
+  const int32_t percentW = target.textWidth(percent);
+  const int32_t linkW = linkState_ != 0 ? 26 : 0;
+  const int32_t w = 28;
+  const int32_t h = 14;
+  const int32_t total = agentW + (agentW ? 10 : 0) + linkW + (linkW ? 8 : 0) + w + 3 + 6 + percentW;
+  int32_t left = cx - total / 2;
+
+  if (agentW) {
+    const bool grok = agentLabel_.equalsIgnoreCase("grok");
+    target.setFont(&fonts::DejaVu12);
+    target.setTextDatum(middle_left);
+    target.setTextColor(grok ? M5.Display.color565(214, 218, 216) : M5.Display.color565(110, 222, 178), TFT_BLACK);
+    target.drawString(agentLabel_, left, rowY);
+    left += agentW + 10;
+  }
+
+  // Link: plug = USB; Wi-Fi green = LAN, with a globe = Funnel, grey = connecting,
+  // red cross = no Wi-Fi, orange "!" = Wi-Fi but no Mac. Nothing when idle.
+  const int32_t iconX = left + 13;
+  const int32_t iconY = rowY;
+  if (linkState_ == 1) {
+    const uint16_t c = M5.Display.color565(159, 196, 232);
+    target.fillRect(iconX - 13, iconY - 1, 5, 3, c);
+    target.fillRoundRect(iconX - 8, iconY - 5, 10, 11, 2, c);
+    target.fillRect(iconX + 2, iconY - 4, 6, 2, c);
+    target.fillRect(iconX + 2, iconY + 3, 6, 2, c);
+  } else if (linkState_ >= 2) {
+    const uint16_t grey = M5.Display.color565(120, 128, 132);
+    const uint16_t c = linkState_ == 2 ? M5.Display.color565(76, 217, 138)
+                     : linkState_ == 3 ? M5.Display.color565(90, 169, 255)
+                                       : grey;
+    const int32_t baseY = iconY + 6;
+    target.fillCircle(iconX, baseY, 2, c);
+    target.fillArc(iconX, baseY, 8, 6, 225, 315, c);
+    target.fillArc(iconX, baseY, 13, 11, 225, 315, c);
+    const int32_t bx = iconX + 9;
+    const int32_t by = iconY + 3;
+    if (linkState_ == 3) {  // globe
+      target.fillCircle(bx, by, 5, TFT_BLACK);
+      target.drawCircle(bx, by, 4, c);
+      target.drawFastHLine(bx - 4, by, 9, c);
+      target.drawEllipse(bx, by, 2, 4, c);
+    } else if (linkState_ == 5) {  // no Wi-Fi
+      const uint16_t red = M5.Display.color565(255, 92, 80);
+      target.fillCircle(bx, by, 6, TFT_BLACK);
+      for (int32_t d = -1; d <= 1; ++d) {
+        target.drawLine(bx - 4 + d, by - 4, bx + 4 + d, by + 4, red);
+        target.drawLine(bx - 4 + d, by + 4, bx + 4 + d, by - 4, red);
+      }
+    } else if (linkState_ == 6) {  // Wi-Fi, Mac unreachable
+      const uint16_t orange = M5.Display.color565(255, 181, 71);
+      target.fillCircle(bx, by, 6, TFT_BLACK);
+      target.fillRect(bx - 1, by - 5, 3, 7, orange);
+      target.fillRect(bx - 1, by + 3, 3, 2, orange);
+    }
+  }
+  if (linkW) {
+    left += linkW + 8;
+  }
+
+  const int32_t x = left;
+  const int32_t y = rowY - h / 2;
+  const uint16_t fill = batteryLevel_ >= 0 && batteryLevel_ <= 20 ? M5.Display.color565(255, 92, 80)
+                                                                   : M5.Display.color565(82, 220, 128);
+  target.drawRoundRect(x, y, w, h, 3, border);
+  target.fillRect(x + w, y + 4, 3, h - 8, border);
+  if (batteryLevel_ >= 0) {
+    const int32_t fillW = map(constrain(batteryLevel_, 0, 100), 0, 100, 0, w - 4);
+    if (fillW > 0) {
+      target.fillRect(x + 2, y + 2, fillW, h - 4, fill);
+    }
+  }
+  if (batteryCharging_) {
+    const uint16_t bolt = M5.Display.color565(255, 230, 90);
+    target.fillTriangle(x + 15, y + 1, x + 9, y + 8, x + 14, y + 8, bolt);
+    target.fillTriangle(x + 13, y + 6, x + 18, y + 6, x + 12, y + h - 1, bolt);
+  }
+  target.setFont(&fonts::FreeSans9pt7b);
+  target.setTextDatum(middle_left);
+  target.setTextColor(border, TFT_BLACK);
+  target.drawString(percent, x + w + 3 + 6, rowY);
+
+  // Slots from the top, 15 degrees apart along the right edge.
+  for (uint8_t i = 0; i < noticeCount_; ++i) {
+    const float angle = (-30.0f + 15.0f * i) * DEG_TO_RAD;
+    drawNoticeBadge(target, cx + static_cast<int32_t>(192.0f * cosf(angle)),
+                    cy + static_cast<int32_t>(192.0f * sinf(angle)), noticeKinds_[i], noticeCounts_[i]);
+  }
+  target.setTextDatum(top_left);
+}
+
+template <typename Target>
+void FaceController::drawNoticeBadge(Target& target, int32_t x, int32_t y, uint8_t kind, uint8_t count) {
+  const uint16_t bg = M5.Display.color565(22, 25, 28);
+  target.fillCircle(x, y, 20, bg);
+  target.drawCircle(x, y, 20, M5.Display.color565(42, 47, 51));
+  switch (kind) {
+    case 0: {  // follow: heart
+      const uint16_t c = M5.Display.color565(255, 92, 150);
+      target.fillCircle(x - 5, y - 3, 6, c);
+      target.fillCircle(x + 5, y - 3, 6, c);
+      target.fillTriangle(x - 11, y - 1, x + 11, y - 1, x, y + 11, c);
+      break;
+    }
+    case 1: {  // reply: speech bubble
+      const uint16_t c = M5.Display.color565(90, 169, 255);
+      target.fillRoundRect(x - 11, y - 10, 22, 16, 4, c);
+      target.fillRoundRect(x - 8, y - 7, 16, 10, 2, bg);
+      target.fillTriangle(x - 8, y + 5, x - 2, y + 5, x - 9, y + 11, c);
+      break;
+    }
+    case 2: {  // mention: @
+      target.setFont(&fonts::FreeSansBold12pt7b);
+      target.setTextSize(1);
+      target.setTextDatum(middle_center);
+      target.setTextColor(M5.Display.color565(255, 181, 71), bg);
+      target.drawString("@", x, y);
+      break;
+    }
+    case 3: {  // repost: two turning arrows
+      const uint16_t c = M5.Display.color565(76, 217, 138);
+      target.fillRect(x - 9, y - 7, 13, 3, c);
+      target.fillRect(x - 9, y - 7, 3, 7, c);
+      target.fillTriangle(x + 3, y - 11, x + 3, y, x + 9, y - 6, c);
+      target.fillRect(x - 3, y + 4, 13, 3, c);
+      target.fillRect(x + 7, y, 3, 7, c);
+      target.fillTriangle(x - 3, y, x - 3, y + 11, x - 9, y + 5, c);
+      break;
+    }
+    default: {  // quote: two quotation marks
+      const uint16_t c = M5.Display.color565(180, 140, 255);
+      for (const int32_t dx : {-6, 6}) {
+        target.fillCircle(x + dx, y + 3, 4, c);
+        target.fillTriangle(x + dx - 4, y + 2, x + dx, y + 2, x + dx + 2, y - 8, c);
+      }
+      break;
+    }
+  }
+  if (count >= 2) {
+    const String text = count > 9 ? String("9+") : String(count);
+    const int32_t w = text.length() > 1 ? 24 : 18;
+    const uint16_t pill = M5.Display.color565(242, 244, 243);
+    target.fillRoundRect(x + 13 - w / 2, y - 23, w, 18, 9, pill);
+    target.setFont(&fonts::FreeSansBold9pt7b);
+    target.setTextSize(1);
+    target.setTextDatum(middle_center);
+    target.setTextColor(TFT_BLACK, pill);
+    target.drawString(text, x + 13, y - 14);
+  }
 }
 
 template <typename Target>
@@ -3760,14 +4094,14 @@ bool FaceController::rebuildSpeechBubbleCanvas(const char* text) {
   }
 
 #if STACKCHAN_SMALL_DISPLAY
-  speechBubbleCanvas_.setFont(&fonts::efontJA_12);
+  speechBubbleCanvas_.setFont(&fonts::efontCN_12);
   const float textScale = 1.0f;
   const int32_t paddingX = 6;
   const int32_t paddingY = 4;
   const uint8_t deviceMaxLines = 2;
   const int32_t radius = 7;
 #elif STACKCHAN_ROUND_DISPLAY
-  speechBubbleCanvas_.setFont(&fonts::efontJA_12);
+  speechBubbleCanvas_.setFont(&fonts::efontCN_12);
   const float textScale = 1.75f;
   const int32_t paddingX = 12;
   const int32_t paddingY = 6;

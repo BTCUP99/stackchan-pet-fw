@@ -35,6 +35,9 @@
 #include "StepCounterController.h"
 #include "StreetPassController.h"
 #include "StreetPassProtocol.h"
+#include "Adpcm.h"
+#include "AvatarStore.h"
+#include "NetLink.h"
 #include "UsbSerialProtocol.h"
 #include "Utf8Utils.h"
 #include "WebSocketServerController.h"
@@ -257,6 +260,28 @@ unsigned long guruguruImuDizzyShakeLastActiveMs = 0;
 #endif
 #endif
 unsigned long hapticOffMs = 0;
+// Opt-in Mac bridge controls. Inactive until a connected client enables them.
+bool macBridgeEnabled = false;
+bool macBridgePttPressed = false;
+// The upstream unauthenticated Wi-Fi servers stay off; Wi-Fi is used only by NetLink,
+// which dials out to the Mac when no USB host is talking to the device.
+constexpr bool macBridgeUsbOnly = false;
+constexpr const char* kMacBridgeVersion = "0.3.0";
+unsigned long usbHostLastRxMs = 0;
+bool linkOverNet = false;
+const char* macBridgeAgent = "";  // shown while a Mac is connected
+// X notice badges: each event expires on its own; kinds follow kNoticeKinds.
+constexpr uint8_t kNoticeKindCount = 5;
+constexpr const char* kNoticeKinds[kNoticeKindCount] = {"follow", "reply", "mention", "repost", "quote"};
+constexpr uint8_t kNoticeMaxEvents = 48;
+struct NoticeEvent {
+  uint8_t kind;
+  unsigned long expiresMs;
+  unsigned long seq;
+};
+NoticeEvent noticeEvents[kNoticeMaxEvents];
+uint8_t noticeEventCount = 0;
+unsigned long lastNoticeCheckMs = 0;
 unsigned long lastInitializeDrawMs = 0;
 unsigned long lastFaceUpdateMs = 0;
 uint8_t initializeSpinnerFrame = 0;
@@ -493,6 +518,12 @@ void handleUsbSerialCaptureRequest(JsonDocument& doc);
 void handleAffectionSyncStateCommand(JsonDocument& doc);
 void handleAffectionSyncApplyCommand(JsonDocument& doc);
 void updateUsbSerialDeferredIdle(unsigned long now);
+void updateNetLink(unsigned long now);
+void updateNoticeBadges(unsigned long now);
+void handleNetConfigSetCommand(JsonDocument& doc);
+void handleNetConfigGetCommand(JsonDocument& doc);
+void handleNotifySetCommand(JsonDocument& doc);
+void handleAvatarCommand(JsonDocument& doc, const char* type);
 void updateCameraButtonPending(unsigned long now);
 void clearCameraButtonPending(const char* reason);
 bool interactionsReady(unsigned long now);
@@ -785,6 +816,13 @@ bool selectNextConfiguredWifi() {
 
 void applyAffectionResult(const AffectionApplyResult& result, unsigned long now, bool sendState,
                           const char* requestId = nullptr, bool deferDeltaUntilAudioSettles = false) {
+#if !STACKCHAN_AFFECTION_ENABLED
+  (void)sendState;
+  (void)requestId;
+  (void)deferDeltaUntilAudioSettles;
+  (void)now;
+  return;
+#endif
   if (!result.applied) {
     return;
   }
@@ -2327,6 +2365,10 @@ void updatePendingAffectionDelta() {
 }
 
 void updateAffectionState(unsigned long now) {
+#if !STACKCHAN_AFFECTION_ENABLED
+  (void)now;
+  return;
+#endif
   if (currentState == ChanState::Speaking ||
       audioController.state() == ChanState::Speaking ||
       audioController.isPlaybackDraining()) {
@@ -2613,7 +2655,7 @@ void resetUsbSerialParserForDisplayOff() {
 void disconnectUsbSerialForDisplayOff() {
 #if USB_SERIAL_PROTOCOL_ENABLED
   if (usbSerialClientConnected || usbSerialFramedMode) {
-    Serial.println("[usb] suspended for display off");
+    Serial.println("[usb] link session cleared");
   }
   usbSerialClientConnected = false;
   usbSerialFramedMode = false;
@@ -2731,6 +2773,7 @@ void suspendAppCommsForDisplayOff(unsigned long now) {
 #endif
   slowStreetPassBleForDisplayOff(now);
 
+  NetLink::stop("display_off");
   disconnectUsbSerialForDisplayOff();
   stopServers("display_off");
 
@@ -3162,6 +3205,11 @@ void setShakeActive(bool active, unsigned long now) {
       // A shake is an explicit user interaction, so it may move even if the
       // app starts its spoken reaction at the same time. Ordinary speech
       // remains paused by setState().
+#if STACKCHAN_MAC_BRIDGE_HOME
+      // Shake is still detected and reported (a future "shake to replay" hook), without
+      // the face animation or vibration.
+      sendInteractionEvent("shake", "start", now);
+#else
       motionController.setMovementPaused(false);
       faceController.setShakeFaceMode(true);
       motionController.setTargetPose(SERVO_PAN_CENTER + random(-10, 11), SERVO_TILT_CENTER - random(4, 11));
@@ -3169,6 +3217,7 @@ void setShakeActive(bool active, unsigned long now) {
       sendInteractionEvent("shake", "start", now);
       pulseHaptic(HAPTIC_SHAKE_LEVEL, HAPTIC_SHAKE_MS, now);
       motionController.deferOutputUntil(now + SHAKE_SERVO_START_DELAY_MS);
+#endif
       lastShakeRepeatEventMs = now;
       Serial.println("[shake] start");
     } else if (now - lastShakeRepeatEventMs >= 800) {
@@ -7046,6 +7095,13 @@ void sendJsonDocument(JsonDocument& doc) {
 void writeDeviceInfo(JsonDocument& response, const char* requestId) {
   ensureDeviceId();
   response["type"] = "device.info";
+  response["macBridgeVersion"] = kMacBridgeVersion;
+  response["macBridgeUsbOnly"] = macBridgeUsbOnly;
+  response["link"] = linkOverNet ? "net" : "usb";
+  NetLink::writeStatus(response["netLink"].to<JsonObject>());
+  response["speakerVolume"] = deviceSettings.volume;
+  response["speakerVolumeMax"] = AUDIO_SPEAKER_VOLUME_MAX;
+  response["avatar"] = AvatarStore::loadActive();
   if (requestId != nullptr && requestId[0] != '\0') {
     response["requestId"] = requestId;
   }
@@ -7073,8 +7129,17 @@ void writeDeviceInfo(JsonDocument& response, const char* requestId) {
   }
   JsonArray capabilities = response["capabilities"].to<JsonArray>();
   capabilities.add("device.info");
+#if STACKCHAN_AFFECTION_ENABLED
   capabilities.add("affection.get");
   capabilities.add("affection.sync");
+#endif
+  capabilities.add("net.config");
+  capabilities.add("audio.adpcm");
+  capabilities.add("net.lan");
+  capabilities.add("display.agent");
+  capabilities.add("notify.badges");
+  capabilities.add("avatar.store");
+  capabilities.add("face.happy");
   capabilities.add(SPEECH_BUBBLE_CAPABILITY);
 #if STEP_COUNTER_ENABLED
   capabilities.add("steps.sync");
@@ -7136,6 +7201,17 @@ bool sendUsbSerialFrame(uint8_t type, const uint8_t* payload, size_t length, uin
 
   uint8_t crcBytes[4];
   Usb::writeLe32(crcBytes, crc);
+  if (linkOverNet) {
+    // One SCU1 frame per WebSocket message.
+    static uint8_t* netFrame = static_cast<uint8_t*>(
+      heap_caps_malloc(sizeof(header) + USB_SERIAL_FRAME_MAX_PAYLOAD_BYTES + sizeof(crcBytes),
+                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (netFrame == nullptr) return false;
+    memcpy(netFrame, header, sizeof(header));
+    if (length > 0) memcpy(netFrame + sizeof(header), payload, length);
+    memcpy(netFrame + sizeof(header) + length, crcBytes, sizeof(crcBytes));
+    return NetLink::send(netFrame, sizeof(header) + length + sizeof(crcBytes));
+  }
   const size_t headerWritten = Serial.write(header, sizeof(header));
   size_t payloadWritten = 0;
   if (length > 0) {
@@ -7165,7 +7241,17 @@ bool sendUsbSerialFrame(uint8_t type, const uint8_t* payload, size_t length, uin
 
 bool sendUsbSerialMicPacket(const uint8_t* payload, size_t length, void* context) {
   (void)context;
-  return sendUsbSerialFrame(Usb::kTypeMicPcm, payload, length);
+  if (!linkOverNet || length <= AUDIO_MIC_PACKET_HEADER_BYTES) {
+    return sendUsbSerialFrame(Usb::kTypeMicPcm, payload, length);
+  }
+  // Network link: keep the MIC1 header, compress the PCM 4:1.
+  static uint8_t packet[AUDIO_MIC_PACKET_HEADER_BYTES + Adpcm::kHeaderBytes + AUDIO_CHUNK_SAMPLES / 2 + 1];
+  const size_t samples = (length - AUDIO_MIC_PACKET_HEADER_BYTES) / sizeof(int16_t);
+  if (samples > AUDIO_CHUNK_SAMPLES) return false;
+  memcpy(packet, payload, AUDIO_MIC_PACKET_HEADER_BYTES);
+  const size_t encoded = Adpcm::encode(reinterpret_cast<const int16_t*>(payload + AUDIO_MIC_PACKET_HEADER_BYTES),
+                                       samples, packet + AUDIO_MIC_PACKET_HEADER_BYTES);
+  return sendUsbSerialFrame(Usb::kTypeMicAdpcm, packet, AUDIO_MIC_PACKET_HEADER_BYTES + encoded);
 }
 
 void writePongResponse(JsonDocument& response, JsonDocument& request) {
@@ -7635,6 +7721,122 @@ void handleSpeechBubbleCommand(JsonDocument& doc,
   }
 }
 
+// Network link -----------------------------------------------------------------
+
+bool netLinkAllowed(unsigned long now) {
+  // USB wins: the Mac pings every 4 s over USB, so 10 s of silence means no USB host.
+  const bool usbHostQuiet = usbHostLastRxMs == 0 ? now > 10000 : now - usbHostLastRxMs > 10000;
+  return displayOn && usbHostQuiet;
+}
+
+void updateNetLink(unsigned long now) {
+  const bool quiet = currentState == ChanState::Idle && audioController.state() == ChanState::Idle &&
+                     !audioController.isPlaybackDraining();
+  NetLink::update(now, netLinkAllowed(now), quiet);
+}
+
+void handleNetConfigSetCommand(JsonDocument& doc) {
+  JsonDocument response;
+  response["type"] = "net.config.result";
+  const char* requestId = doc["requestId"] | "";
+  if (requestId[0] != '\0') response["requestId"] = requestId;
+  String error;
+  if (linkOverNet) {
+    error = "usb_only";  // credentials are never accepted over the network
+  } else if (doc["clear"] | false) {
+    NetLink::clear();
+  } else {
+    NetLink::configure(doc.as<JsonVariantConst>(), error);
+  }
+  response["ok"] = error.isEmpty();
+  if (!error.isEmpty()) response["error"] = error;
+  NetLink::writeStatus(response["netLink"].to<JsonObject>());
+  sendJsonDocument(response);
+}
+
+void handleNetConfigGetCommand(JsonDocument& doc) {
+  JsonDocument response;
+  response["type"] = "net.config";
+  const char* requestId = doc["requestId"] | "";
+  if (requestId[0] != '\0') response["requestId"] = requestId;
+  response["link"] = linkOverNet ? "net" : "usb";
+  NetLink::writeStatus(response["netLink"].to<JsonObject>());
+  sendJsonDocument(response);
+}
+
+// Avatar sets ---------------------------------------------------------------------
+
+void handleAvatarCommand(JsonDocument& doc, const char* type) {
+  JsonDocument response;
+  response["type"] = "avatar.result";
+  const char* requestId = doc["requestId"] | "";
+  if (requestId[0] != '\0') response["requestId"] = requestId;
+  String error;
+  if (strcmp(type, "avatar.list") == 0) {
+    AvatarStore::writeList(response.as<JsonObject>());
+  } else if (strcmp(type, "avatar.select") == 0) {
+    const char* id = doc["id"] | "";
+    if (AvatarStore::select(id, error)) faceController.setAvatar(id);
+  } else if (linkOverNet) {
+    error = "usb_only";  // stored images are only written or removed over the cable
+  } else if (strcmp(type, "avatar.put") == 0) {
+    AvatarStore::put(doc.as<JsonVariantConst>(), error);
+  } else if (strcmp(type, "avatar.delete") == 0) {
+    const char* id = doc["id"] | "";
+    const bool wasActive = AvatarStore::loadActive() == id;
+    if (AvatarStore::remove(id, error) && wasActive) faceController.setAvatar("");
+  }
+  response["ok"] = error.isEmpty();
+  if (!error.isEmpty()) response["error"] = error;
+  sendJsonDocument(response);
+}
+
+// X notice badges -----------------------------------------------------------------
+
+void handleNotifySetCommand(JsonDocument& doc) {
+  // The Mac sends every live event, oldest first, with its remaining lifetime.
+  const unsigned long now = millis();
+  noticeEventCount = 0;
+  unsigned long seq = 0;
+  for (JsonVariantConst item : doc["items"].as<JsonArrayConst>()) {
+    if (noticeEventCount >= kNoticeMaxEvents) break;
+    const char* kind = item["kind"] | "";
+    const uint32_t ttlSec = item["ttlSec"] | 0U;
+    if (ttlSec == 0 || ttlSec > 3600) continue;
+    for (uint8_t k = 0; k < kNoticeKindCount; ++k) {
+      if (strcmp(kind, kNoticeKinds[k]) == 0) {
+        noticeEvents[noticeEventCount++] = {k, now + ttlSec * 1000UL, seq++};
+        break;
+      }
+    }
+  }
+  lastNoticeCheckMs = 0;
+}
+
+void updateNoticeBadges(unsigned long now) {
+  if (lastNoticeCheckMs != 0 && now - lastNoticeCheckMs < 1000) return;
+  lastNoticeCheckMs = now == 0 ? 1 : now;
+  uint8_t kept = 0;
+  for (uint8_t i = 0; i < noticeEventCount; ++i) {
+    if ((long)(noticeEvents[i].expiresMs - now) > 0) noticeEvents[kept++] = noticeEvents[i];
+  }
+  noticeEventCount = kept;
+  // One badge per kind, ordered by its oldest live event.
+  uint8_t kinds[kNoticeKindCount];
+  uint8_t counts[kNoticeKindCount];
+  uint8_t shown = 0;
+  for (uint8_t i = 0; i < noticeEventCount; ++i) {
+    uint8_t slot = 0;
+    while (slot < shown && kinds[slot] != noticeEvents[i].kind) ++slot;
+    if (slot == shown) {
+      kinds[shown] = noticeEvents[i].kind;
+      counts[shown++] = 0;
+    }
+    if (counts[slot] < 99) ++counts[slot];
+  }
+  faceController.setNoticeBadges(kinds, counts, shown);
+}
+
 void handleJsonCommand(const uint8_t* payload,
                        size_t length,
                        SpeechBubbleTransport transport) {
@@ -7661,7 +7863,20 @@ void handleJsonCommand(const uint8_t* payload,
     }
   }
 #endif
-  if (strcmp(type, "ping") == 0) {
+  if (strcmp(type, "bridge.configure") == 0) {
+    macBridgeEnabled = doc["enabled"] | false;
+    macBridgePttPressed = false;
+    audioController.setMicMuted(false);
+    setState(ChanState::Idle);
+    if (macBridgeEnabled) setInfoScreenVisible(false);
+    JsonDocument response;
+    response["type"] = "bridge.configured";
+    response["enabled"] = macBridgeEnabled;
+    response["version"] = kMacBridgeVersion;
+    sendJsonDocument(response);
+  } else if (strcmp(type, "bridge.haptic") == 0) {
+    if (macBridgeEnabled) pulseHaptic(100, min<unsigned long>(doc["durationMs"] | 80UL, 400UL), millis());
+  } else if (strcmp(type, "ping") == 0) {
     sendPongResponse(doc);
   } else if (strcmp(type, "device.info.get") == 0) {
     handleDeviceInfoGetCommand(doc);
@@ -7688,6 +7903,7 @@ void handleJsonCommand(const uint8_t* payload,
   } else if (strcmp(type, "state") == 0) {
     const char* value = doc["value"] | "";
     handleStateCommand(value);
+#if STACKCHAN_AFFECTION_ENABLED
   } else if (strcmp(type, "affection.event") == 0) {
     handleAffectionEventCommand(doc);
   } else if (strcmp(type, "affection.get") == 0) {
@@ -7702,6 +7918,22 @@ void handleJsonCommand(const uint8_t* payload,
     handleAffectionDebugAdjustCommand(doc);
   } else if (strcmp(type, "affection.debug_set") == 0) {
     handleAffectionDebugSetCommand(doc);
+#endif
+  } else if (strcmp(type, "net.config.set") == 0) {
+    handleNetConfigSetCommand(doc);
+  } else if (strcmp(type, "bridge.agent") == 0) {
+    const char* agent = doc["agent"] | "";
+    macBridgeAgent = strcmp(agent, "grok") == 0 ? "Grok" : strcmp(agent, "codex") == 0 ? "Codex" : "";
+  } else if (strcmp(type, "net.lan.hint") == 0) {
+    NetLink::setLanIp(doc["ip"] | "");
+  } else if (strcmp(type, "net.config.get") == 0) {
+    handleNetConfigGetCommand(doc);
+  } else if (strcmp(type, "notify.set") == 0) {
+    handleNotifySetCommand(doc);
+  } else if (strncmp(type, "avatar.", 7) == 0) {
+    handleAvatarCommand(doc, type);
+  } else if (strcmp(type, "face.happy") == 0) {
+    if (macBridgeEnabled) faceController.showHappy(doc["durationMs"] | 2000UL);
   } else if (strncmp(type, "streetpass.", 11) == 0) {
     if (!handleStreetPassCommand(doc)) {
       Serial.printf("[streetpass] unsupported type: %s\n", type);
@@ -8063,6 +8295,20 @@ void handleUsbSerialFrame(uint8_t type, uint8_t flags, uint32_t seq, const uint8
       audioController.onBinaryReceived(const_cast<uint8_t*>(payload), length);
       break;
     }
+    case Usb::kTypeTtsAdpcm: {
+      clearCameraButtonPending("net_audio");
+#if STACKCHAN_DEVICE_STOPWATCH
+      usbSerialLastPcmMs = millis();
+#endif
+      static int16_t* pcm = static_cast<int16_t*>(
+        heap_caps_malloc(4096 * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+      const size_t samples = pcm != nullptr ? Adpcm::decode(payload, length, pcm, 4096) : 0;
+      if (samples > 0) {
+        speechBubbleController.onPcmReceived(SpeechBubbleTransport::UsbSerial);
+        audioController.onBinaryReceived(reinterpret_cast<uint8_t*>(pcm), samples * sizeof(int16_t));
+      }
+      break;
+    }
     case Usb::kTypeCaptureRequest:
       if (length > 0) {
         JsonDocument doc;
@@ -8118,6 +8364,20 @@ void handleUsbSerialFrame(uint8_t type, uint8_t flags, uint32_t seq, const uint8
 
 void updateUsbSerial(unsigned long now) {
 #if USB_SERIAL_PROTOCOL_ENABLED
+  // A USB host takes the link back as soon as it speaks; the network link yields.
+  if (linkOverNet && Serial.available() > 0) {
+    usbHostLastRxMs = now;
+    NetLink::stop("usb_host");
+  }
+  if (linkOverNet != NetLink::connected()) {
+    linkOverNet = NetLink::connected();
+    Serial.printf("[link] now over %s\n", linkOverNet ? "network" : "usb");
+    if (speechBubbleController.activeForTransport(SpeechBubbleTransport::UsbSerial)) {
+      speechBubbleController.reset("link_switch");
+    }
+    disconnectUsbSerialForDisplayOff();  // clear the session and SCU1 parser for the new transport
+    macBridgePttPressed = false;
+  }
   if (usbSerialClientConnected && now - usbSerialLastRxMs > USB_SERIAL_CLIENT_TIMEOUT_MS) {
     usbSerialClientConnected = false;
     usbSerialFramedMode = false;
@@ -8140,10 +8400,13 @@ void updateUsbSerial(unsigned long now) {
   size_t rxDiagFirstLength = 0;
   size_t rxDiagBytesRead = 0;
   size_t budget = USB_SERIAL_READ_BUDGET_BYTES;
-  while (budget-- > 0 && Serial.available() > 0) {
-    const int value = Serial.read();
+  while (budget-- > 0 && (linkOverNet ? NetLink::available() > 0 : Serial.available() > 0)) {
+    const int value = linkOverNet ? NetLink::read() : Serial.read();
     if (value < 0) {
       break;
+    }
+    if (!linkOverNet) {
+      usbHostLastRxMs = now;
     }
     if (rxDiagFirstLength < sizeof(rxDiagFirstBytes)) {
       rxDiagFirstBytes[rxDiagFirstLength++] = static_cast<uint8_t>(value);
@@ -8404,6 +8667,10 @@ void beginStaWifiConnection(const char* reason, bool resetRadio = false) {
 }
 
 void connectWiFi() {
+  // Mac bridge build: upstream servers stay off and NetLink owns the radio.
+  stopServers("mac_bridge");
+  Serial.println("[wifi] upstream Wi-Fi services disabled; NetLink manages the radio");
+  return;
   WiFi.persistent(false);
   wifiConnectStartedMs = 0;
   lastWifiStatus = WiFi.status();
@@ -8446,6 +8713,7 @@ void connectWiFi() {
 }
 
 void updateWiFi(unsigned long now) {
+  return;  // Mac bridge build: NetLink owns Wi-Fi
   if (now - lastWifiCheckMs < WIFI_STATUS_CHECK_INTERVAL_MS) {
     return;
   }
@@ -9348,6 +9616,56 @@ void updateTouch(unsigned long now) {
 }
 
 void updateButtons(unsigned long now) {
+#if STACKCHAN_DEVICE_STOPWATCH
+  if (macBridgeEnabled && appClientConnected() && displayOn) {
+    // Keep volume reachable while the normal A/B actions are owned by the bridge.
+    // M5Unified's held B release does not produce a single-click event.
+    if (M5.BtnB.wasHold() && !macBridgePttPressed) {
+      if (infoScreenVisible) {
+        setInfoScreenVisible(false);
+      } else {
+        selectSettingsPage(SettingsPage::Audio);
+        setInfoScreenVisible(true);
+      }
+      pulseHaptic(80, 35, now);
+      return;
+    }
+    if (infoScreenVisible) {
+      // A exits settings without starting a recording on the same press.
+      if (M5.BtnA.wasPressed()) setInfoScreenVisible(false);
+      if (M5.BtnPWR.wasClicked()) setDisplayOn(false);
+      return;
+    }
+    if (M5.BtnA.wasPressed()) {
+      macBridgePttPressed = true;
+      JsonDocument event;
+      event["type"] = "bridge.ptt";
+      event["pressed"] = true;
+      sendJsonDocument(event);
+      audioController.setMicMuted(false);
+      setState(ChanState::Listening);
+      pulseHaptic(80, 35, now);
+    }
+    if (macBridgePttPressed && M5.BtnA.wasReleased()) {
+      macBridgePttPressed = false;
+      setState(ChanState::Idle);
+      JsonDocument event;
+      event["type"] = "bridge.ptt";
+      event["pressed"] = false;
+      sendJsonDocument(event);
+      pulseHaptic(80, 35, now);
+    }
+    if (M5.BtnB.wasDecideClickCount()) {
+      JsonDocument event;
+      event["type"] = "bridge.action";
+      event["action"] = M5.BtnB.getClickCount() >= 2 ? "cancel" : "next_agent";
+      sendJsonDocument(event);
+      pulseHaptic(80, 35, now);
+    }
+    if (M5.BtnPWR.wasClicked()) setDisplayOn(false);
+    return;
+  }
+#endif
   (void)now;
 #if STACKCHAN_SMALL_DISPLAY
   if (!interactionsReady(now)) {
@@ -9786,6 +10104,7 @@ void setup() {
 
   WiFi.onEvent(onWiFiEvent);
   connectWiFi();
+  NetLink::begin();
   interactionReadyAtMs = millis() + INTERACTION_STARTUP_IGNORE_MS;
   lastInitializeDrawMs = 0;
   drawInitializeScreen(millis());
@@ -9854,6 +10173,10 @@ void loop() {
 #endif
   updateUsbSerial(now);
   updateUsbSerialDeferredIdle(now);
+  updateNetLink(now);
+  updateNoticeBadges(now);
+  faceController.setLinkState(appClientConnected() && !linkOverNet ? 1 : NetLink::indicator());
+  faceController.setAgentLabel(appClientConnected() ? macBridgeAgent : "");
 #if CLASSIC_FACE_LIP_SYNC_DIAG_LOG_ENABLED
   if (millis() - lipDiagStepStartedAt > 20) {
     Serial.printf("[lip.loop] step=usb elapsed_ms=%lu current=%d audio=%d\n",

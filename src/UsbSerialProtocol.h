@@ -15,6 +15,9 @@ constexpr uint8_t kTypeAck = 0x06;
 constexpr uint8_t kTypeError = 0x07;
 constexpr uint8_t kTypePing = 0x08;
 constexpr uint8_t kTypePong = 0x09;
+// Network link only: IMA ADPCM (Adpcm.h) instead of raw PCM.
+constexpr uint8_t kTypeTtsAdpcm = 0x0A;
+constexpr uint8_t kTypeMicAdpcm = 0x0B;
 
 uint32_t readLe32(const uint8_t* data);
 void writeLe32(uint8_t* data, uint32_t value);

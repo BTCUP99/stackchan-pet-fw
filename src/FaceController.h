@@ -55,6 +55,16 @@ public:
   void setBatteryState(int level, bool charging);
   void setClockText(const String& text, bool valid);
   void setStepCount(uint32_t steps, bool valid);
+  // Right-edge X notice badges; kinds index the icon set (follow, reply, mention, repost, quote).
+  void setNoticeBadges(const uint8_t* kinds, const uint8_t* counts, uint8_t count);
+  // 0 none, 1 USB, 2 LAN, 3 Funnel, 4 connecting, 5 no Wi-Fi, 6 Mac unreachable; beside the battery.
+  void setLinkState(uint8_t state);
+  // Current assistant name, shown at the start of the status row; empty hides it.
+  void setAgentLabel(const char* label);
+  // Uploaded avatar set (/av/<id>/) whose images override the built-in ones; empty = built-in.
+  void setAvatar(const String& id);
+  // Show the avatar's happy frame for durationMs once the device is idle (after the closing speech).
+  void showHappy(uint32_t durationMs);
   void setMicState(bool connected, bool muted, bool streaming);
   void setCameraButtonPending(bool pending);
   void setCameraCaptureActive(bool active);
@@ -116,6 +126,7 @@ private:
 #endif
   void showBaseFace();
   void drawFace(const char* path, bool drawOverlays = true);
+  bool updateHappyFace(unsigned long now);
   void drawEmergencyFace();
   template <typename Target>
   void drawEmergencyFaceTarget(Target& target);
@@ -227,6 +238,10 @@ private:
   void drawRoundCameraOverlayTarget(Target& target);
   template <typename Target>
   void drawRoundMicOverlayTarget(Target& target);
+  template <typename Target>
+  void drawHomeStatusTarget(Target& target);
+  template <typename Target>
+  void drawNoticeBadge(Target& target, int32_t x, int32_t y, uint8_t kind, uint8_t count);
   bool overlaysNeedRefresh(unsigned long now) const;
   void drawHeart(M5GFX& target, int32_t cx, int32_t cy, int32_t size, uint16_t color);
   void drawHeart(M5Canvas& target, int32_t cx, int32_t cy, int32_t size, uint16_t color);
@@ -372,6 +387,17 @@ private:
   mutable uint8_t imagePathCacheNext_ = 0;
   String clockText_;
   bool clockValid_ = false;
+  static constexpr uint8_t kNoticeSlots = 5;
+  uint8_t noticeKinds_[kNoticeSlots] = {};
+  uint8_t noticeCounts_[kNoticeSlots] = {};
+  uint8_t noticeCount_ = 0;
+  bool noticeLayoutDirty_ = false;
+  uint8_t linkState_ = 0;
+  String agentLabel_;
+  String avatarDir_;
+  uint32_t happyDurationMs_ = 0;
+  unsigned long happyRequestedMs_ = 0;
+  unsigned long happyUntilMs_ = 0;
 #if CLOCK_DISPLAY_ENABLED
   bool clockOverlayDirty_ = true;
 #else
