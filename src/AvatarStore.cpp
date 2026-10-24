@@ -22,6 +22,11 @@ bool validFileName(const char* name) {
   if (strcmp(name, "happy.jpg") == 0 || strcmp(name, "meta.json") == 0) {
     return true;
   }
+  // Touch reactions: giggle_1/2.jpg, laugh_1/2.jpg
+  if ((strncmp(name, "giggle_", 7) == 0 && (name[7] == '1' || name[7] == '2') && strcmp(name + 8, ".jpg") == 0) ||
+      (strncmp(name, "laugh_", 6) == 0 && (name[6] == '1' || name[6] == '2') && strcmp(name + 7, ".jpg") == 0)) {
+    return true;
+  }
   return strlen(name) == 14 && strncmp(name, "base_m", 6) == 0 && name[6] >= '0' && name[6] <= '3' &&
          strncmp(name + 7, "_e", 2) == 0 && name[9] >= '0' && name[9] <= '3' && strcmp(name + 10, ".jpg") == 0;
 }
@@ -230,18 +235,21 @@ void writeList(JsonObject out) {
     uint32_t bytes = 0;
     uint8_t files = 0;
     bool happy = false;
+    bool touch = false;
     for (File child = entry.openNextFile(); child; child = entry.openNextFile()) {
       const String name = child.name();
       if (!name.endsWith(".part")) {
         bytes += child.size();
         ++files;
         happy = happy || name == "happy.jpg";
+        touch = touch || name.startsWith("giggle_") || name.startsWith("laugh_");
       }
       child.close();
     }
     item["files"] = files;
     item["bytes"] = bytes;
     item["happy"] = happy;
+    item["touch"] = touch;
     entry.close();
   }
   root.close();

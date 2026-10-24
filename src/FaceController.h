@@ -65,6 +65,11 @@ public:
   void setAvatar(const String& id);
   // Show the avatar's happy frame for durationMs once the device is idle (after the closing speech).
   void showHappy(uint32_t durationMs);
+  // Touch reaction on the idle home face: the set's two frames alternate, falling back to happy.jpg.
+  // False when the device is busy, a reaction is already playing, or the set has neither.
+  enum class TouchReaction : uint8_t { Giggle, Laugh };
+  bool playTouchReaction(TouchReaction reaction, unsigned long now);
+  bool touchReactionActive() const { return reactionUntilMs_ != 0; }
   void setMicState(bool connected, bool muted, bool streaming);
   void setCameraButtonPending(bool pending);
   void setCameraCaptureActive(bool active);
@@ -127,6 +132,7 @@ private:
   void showBaseFace();
   void drawFace(const char* path, bool drawOverlays = true);
   bool updateHappyFace(unsigned long now);
+  bool updateTouchReaction(unsigned long now);
   void drawEmergencyFace();
   template <typename Target>
   void drawEmergencyFaceTarget(Target& target);
@@ -398,6 +404,11 @@ private:
   uint32_t happyDurationMs_ = 0;
   unsigned long happyRequestedMs_ = 0;
   unsigned long happyUntilMs_ = 0;
+  const char* reactionFrames_[2] = {};
+  uint8_t reactionFrameCount_ = 0;
+  uint16_t reactionFrameMs_ = 0;
+  unsigned long reactionStartedMs_ = 0;
+  unsigned long reactionUntilMs_ = 0;
 #if CLOCK_DISPLAY_ENABLED
   bool clockOverlayDirty_ = true;
 #else

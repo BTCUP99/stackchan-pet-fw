@@ -4,7 +4,7 @@
 #include <ArduinoJson.h>
 
 // Avatar sets uploaded by the Mac over USB. Each set lives in /av/<id>/ and holds the
-// 16 base frames, an optional happy frame and a small meta.json; images it lacks fall
+// 16 base frames, optional happy and touch-reaction frames and a small meta.json; images it lacks fall
 // back to the built-in ones at the filesystem root.
 namespace AvatarStore {
 

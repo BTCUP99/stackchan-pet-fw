@@ -262,11 +262,12 @@ unsigned long guruguruImuDizzyShakeLastActiveMs = 0;
 unsigned long hapticOffMs = 0;
 // Opt-in Mac bridge controls. Inactive until a connected client enables them.
 bool macBridgeEnabled = false;
+bool touchReactionsEnabled = true;  // face.touch from the Mac: home face reacts to taps and strokes
 bool macBridgePttPressed = false;
 // The upstream unauthenticated Wi-Fi servers stay off; Wi-Fi is used only by NetLink,
 // which dials out to the Mac when no USB host is talking to the device.
 constexpr bool macBridgeUsbOnly = false;
-constexpr const char* kMacBridgeVersion = "0.3.0";
+constexpr const char* kMacBridgeVersion = "0.4.0";
 unsigned long usbHostLastRxMs = 0;
 bool linkOverNet = false;
 const char* macBridgeAgent = "";  // shown while a Mac is connected
@@ -7140,6 +7141,7 @@ void writeDeviceInfo(JsonDocument& response, const char* requestId) {
   capabilities.add("notify.badges");
   capabilities.add("avatar.store");
   capabilities.add("face.happy");
+  capabilities.add("face.touch");
   capabilities.add(SPEECH_BUBBLE_CAPABILITY);
 #if STEP_COUNTER_ENABLED
   capabilities.add("steps.sync");
@@ -7934,6 +7936,8 @@ void handleJsonCommand(const uint8_t* payload,
     handleAvatarCommand(doc, type);
   } else if (strcmp(type, "face.happy") == 0) {
     if (macBridgeEnabled) faceController.showHappy(doc["durationMs"] | 2000UL);
+  } else if (strcmp(type, "face.touch") == 0) {
+    touchReactionsEnabled = doc["enabled"] | true;
   } else if (strncmp(type, "streetpass.", 11) == 0) {
     if (!handleStreetPassCommand(doc)) {
       Serial.printf("[streetpass] unsupported type: %s\n", type);
@@ -9555,6 +9559,46 @@ bool updateGuruguruFaceImu(unsigned long now, const m5::imu_data_t& data, bool i
 #endif
 #endif
 
+#if STACKCHAN_MAC_BRIDGE_HOME
+// Home face touch reactions, replacing the upstream head-pat there: a short tap giggles,
+// stroking laughs (again each time the previous laugh has finished). Expression only, no sound.
+bool reactionTouchTracking = false;
+bool reactionTouchLaughed = false;
+unsigned long reactionTouchStartMs = 0;
+int32_t reactionTouchTravelPx = 0;
+
+void updateTouchReaction(unsigned long now, const m5::touch_detail_t& touch) {
+  if (!touch.isPressed()) {
+    if (reactionTouchTracking && !reactionTouchLaughed && touchReactionsEnabled &&
+        now - reactionTouchStartMs <= TOUCH_REACTION_TAP_MAX_MS &&
+        reactionTouchTravelPx < TOUCH_REACTION_TAP_SLOP_PX) {
+      faceController.playTouchReaction(FaceController::TouchReaction::Giggle, now);
+    }
+    reactionTouchTracking = false;
+    return;
+  }
+  if (!reactionTouchTracking) {
+    const int32_t dx = touch.base_x - roundCenterX();
+    const int32_t dy = touch.base_y - roundCenterY();
+    if (dx * dx + dy * dy > SCREEN_PETTING_RADIUS_PX * SCREEN_PETTING_RADIUS_PX) {
+      return;  // started on the clock, status row or badges
+    }
+    reactionTouchTracking = true;
+    reactionTouchLaughed = false;
+    reactionTouchStartMs = now;
+    reactionTouchTravelPx = 0;
+    return;
+  }
+  reactionTouchTravelPx += abs(touch.deltaX()) + abs(touch.deltaY());
+  if (touchReactionsEnabled && reactionTouchTravelPx >= TOUCH_REACTION_STROKE_PX &&
+      !faceController.touchReactionActive() &&
+      faceController.playTouchReaction(FaceController::TouchReaction::Laugh, now)) {
+    reactionTouchLaughed = true;
+    reactionTouchTravelPx = 0;
+  }
+}
+#endif
+
 void updateTouch(unsigned long now) {
 #if STACKCHAN_SMALL_DISPLAY
   (void)now;
@@ -9581,6 +9625,11 @@ void updateTouch(unsigned long now) {
   }
 #endif
 
+#if STACKCHAN_MAC_BRIDGE_HOME
+  if (!infoScreenVisible) {
+    updateTouchReaction(now, touch);
+  } else
+#endif
   updateScreenPetting(now, touch);
 
   if (infoScreenVisible && settingsPage == SettingsPage::Network &&

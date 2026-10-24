@@ -1190,6 +1190,7 @@ void FaceController::setAvatar(const String& id) {
   }
   happyDurationMs_ = 0;
   happyUntilMs_ = 0;
+  reactionUntilMs_ = 0;
 #if STACKCHAN_VOICE_SPRITE_ANIMATION_ENABLED
   releaseVoiceSpriteCache();  // decoded frames of the previous set
 #endif
@@ -1206,6 +1207,48 @@ void FaceController::showHappy(uint32_t durationMs) {
   happyDurationMs_ = min<uint32_t>(durationMs, 5000);
   happyRequestedMs_ = millis();
   happyUntilMs_ = 0;
+  reactionUntilMs_ = 0;  // a finished task or notice outranks a touch reaction
+}
+
+bool FaceController::playTouchReaction(TouchReaction reaction, unsigned long now) {
+  static const char* const kGiggle[] = {"/giggle_1.jpg", "/giggle_2.jpg"};
+  static const char* const kLaugh[] = {"/laugh_1.jpg", "/laugh_2.jpg"};
+  if (state_ != ChanState::Idle || happyDurationMs_ != 0 || reactionUntilMs_ != 0) {
+    return false;
+  }
+  const bool laugh = reaction == TouchReaction::Laugh;
+  const char* const* frames = laugh ? kLaugh : kGiggle;
+  reactionFrameCount_ = 0;
+  for (uint8_t i = 0; i < 2; ++i) {
+    if (!resolvedImagePath(frames[i]).isEmpty()) {
+      reactionFrames_[reactionFrameCount_++] = frames[i];
+    }
+  }
+  if (reactionFrameCount_ == 0) {
+    if (resolvedImagePath(kHappyFacePath).isEmpty()) {
+      return false;  // the built-in face has no reaction frames
+    }
+    reactionFrames_[reactionFrameCount_++] = kHappyFacePath;
+  }
+  reactionFrameMs_ = laugh ? TOUCH_REACTION_LAUGH_FRAME_MS : TOUCH_REACTION_GIGGLE_FRAME_MS;
+  reactionStartedMs_ = now;
+  reactionUntilMs_ = now + (laugh ? TOUCH_REACTION_LAUGH_MS : TOUCH_REACTION_GIGGLE_MS);
+  if (reactionUntilMs_ == 0) reactionUntilMs_ = 1;
+  return true;
+}
+
+bool FaceController::updateTouchReaction(unsigned long now) {
+  if (reactionUntilMs_ == 0) {
+    return false;
+  }
+  if (state_ != ChanState::Idle || static_cast<long>(now - reactionUntilMs_) >= 0) {
+    reactionUntilMs_ = 0;
+    currentPath_ = "";
+    showBaseFace();
+    return true;
+  }
+  drawFace(reactionFrames_[((now - reactionStartedMs_) / reactionFrameMs_) % reactionFrameCount_]);
+  return true;
 }
 
 bool FaceController::updateHappyFace(unsigned long now) {
@@ -1507,7 +1550,7 @@ void FaceController::update(unsigned long now) {
     return;
   }
 
-  if (updateHappyFace(now)) {
+  if (updateHappyFace(now) || updateTouchReaction(now)) {
     if (batteryOverlayDirty_ || clockOverlayDirty_) {
       drawBatteryOverlay();
     }
