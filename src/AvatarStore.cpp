@@ -1,6 +1,8 @@
 #include "AvatarStore.h"
 
 #include <LittleFS.h>
+#include <algorithm>
+#include <vector>
 #include <mbedtls/base64.h>
 
 #include "UsbSerialProtocol.h"
@@ -183,6 +185,46 @@ bool select(const char* id, String& error) {
   file.print(id);
   file.close();
   return true;
+}
+
+namespace {
+
+// The built-in face ("") followed by the complete sets sorted by id.
+std::vector<String> cycle() {
+  std::vector<String> ids{String()};
+  File root = LittleFS.open(kRoot);
+  if (root && root.isDirectory()) {
+    for (File entry = root.openNextFile(); entry; entry = root.openNextFile()) {
+      const String id = entry.name();
+      const bool folder = entry.isDirectory();
+      entry.close();
+      if (folder && complete(id.c_str())) ids.push_back(id);
+    }
+  }
+  if (root) root.close();
+  std::sort(ids.begin() + 1, ids.end(), [](const String& a, const String& b) { return strcmp(a.c_str(), b.c_str()) < 0; });
+  return ids;
+}
+
+size_t indexIn(const std::vector<String>& ids, const String& current) {
+  for (size_t i = 0; i < ids.size(); ++i) {
+    if (ids[i] == current) return i;
+  }
+  return 0;
+}
+
+}  // namespace
+
+String adjacent(const String& current, int step) {
+  const std::vector<String> ids = cycle();
+  const int count = static_cast<int>(ids.size());
+  return ids[((static_cast<int>(indexIn(ids, current)) + step) % count + count) % count];
+}
+
+void position(const String& current, uint8_t& index, uint8_t& count) {
+  const std::vector<String> ids = cycle();
+  count = static_cast<uint8_t>(min<size_t>(ids.size(), 255));
+  index = static_cast<uint8_t>(min<size_t>(indexIn(ids, current), 254));
 }
 
 bool remove(const char* id, String& error) {

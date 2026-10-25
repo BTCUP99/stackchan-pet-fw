@@ -19,6 +19,11 @@ bool complete(const char* id);
 // CRC-32 of the stored bytes before the file replaces any previous copy.
 bool put(JsonVariantConst request, String& error);
 bool select(const char* id, String& error);
+// The set `step` places after `current` (-1 = before) among the built-in face ("") and the
+// complete sets sorted by id, wrapping around: the order the console lists them in.
+String adjacent(const String& current, int step);
+// Where `current` sits in that order, for the page dots on the home screen.
+void position(const String& current, uint8_t& index, uint8_t& count);
 bool remove(const char* id, String& error);
 void writeList(JsonObject out);
 

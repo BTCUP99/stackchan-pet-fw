@@ -262,12 +262,14 @@ unsigned long guruguruImuDizzyShakeLastActiveMs = 0;
 unsigned long hapticOffMs = 0;
 // Opt-in Mac bridge controls. Inactive until a connected client enables them.
 bool macBridgeEnabled = false;
-bool touchReactionsEnabled = true;  // face.touch from the Mac: home face reacts to taps and strokes
+bool touchReactionsEnabled = true;  // face.touch from the Mac: home face reacts to taps
+uint8_t swipeHapticLevel = TOUCH_SWIPE_HAPTIC_LEVEL;  // face.touch may tune the swipe tick
+uint8_t swipeHapticMs = TOUCH_SWIPE_HAPTIC_MS;
 bool macBridgePttPressed = false;
 // The upstream unauthenticated Wi-Fi servers stay off; Wi-Fi is used only by NetLink,
 // which dials out to the Mac when no USB host is talking to the device.
 constexpr bool macBridgeUsbOnly = false;
-constexpr const char* kMacBridgeVersion = "0.4.0";
+constexpr const char* kMacBridgeVersion = "0.5.0";
 unsigned long usbHostLastRxMs = 0;
 bool linkOverNet = false;
 const char* macBridgeAgent = "";  // shown while a Mac is connected
@@ -7142,6 +7144,7 @@ void writeDeviceInfo(JsonDocument& response, const char* requestId) {
   capabilities.add("avatar.store");
   capabilities.add("face.happy");
   capabilities.add("face.touch");
+  capabilities.add("avatar.swipe");
   capabilities.add(SPEECH_BUBBLE_CAPABILITY);
 #if STEP_COUNTER_ENABLED
   capabilities.add("steps.sync");
@@ -7782,11 +7785,14 @@ void handleAvatarCommand(JsonDocument& doc, const char* type) {
   } else if (linkOverNet) {
     error = "usb_only";  // stored images are only written or removed over the cable
   } else if (strcmp(type, "avatar.put") == 0) {
-    AvatarStore::put(doc.as<JsonVariantConst>(), error);
+    if (AvatarStore::put(doc.as<JsonVariantConst>(), error) && (doc["final"] | false)) faceController.refreshAvatarDots();
   } else if (strcmp(type, "avatar.delete") == 0) {
     const char* id = doc["id"] | "";
     const bool wasActive = AvatarStore::loadActive() == id;
-    if (AvatarStore::remove(id, error) && wasActive) faceController.setAvatar("");
+    if (AvatarStore::remove(id, error)) {
+      if (wasActive) faceController.setAvatar("");
+      else faceController.refreshAvatarDots();
+    }
   }
   response["ok"] = error.isEmpty();
   if (!error.isEmpty()) response["error"] = error;
@@ -7938,6 +7944,8 @@ void handleJsonCommand(const uint8_t* payload,
     if (macBridgeEnabled) faceController.showHappy(doc["durationMs"] | 2000UL);
   } else if (strcmp(type, "face.touch") == 0) {
     touchReactionsEnabled = doc["enabled"] | true;
+    swipeHapticLevel = min<int>(doc["swipeHapticLevel"] | static_cast<int>(swipeHapticLevel), 255);
+    swipeHapticMs = min<int>(doc["swipeHapticMs"] | static_cast<int>(swipeHapticMs), 120);
   } else if (strncmp(type, "streetpass.", 11) == 0) {
     if (!handleStreetPassCommand(doc)) {
       Serial.printf("[streetpass] unsupported type: %s\n", type);
@@ -9560,41 +9568,95 @@ bool updateGuruguruFaceImu(unsigned long now, const m5::imu_data_t& data, bool i
 #endif
 
 #if STACKCHAN_MAC_BRIDGE_HOME
-// Home face touch reactions, replacing the upstream head-pat there: a short tap giggles,
-// stroking laughs (again each time the previous laugh has finished). Expression only, no sound.
-bool reactionTouchTracking = false;
-bool reactionTouchLaughed = false;
-unsigned long reactionTouchStartMs = 0;
-int32_t reactionTouchTravelPx = 0;
+// Home screen touch, replacing the upstream head-pat there. A fast horizontal swipe anywhere
+// switches to the next/previous avatar set as soon as it crosses the threshold, finger still
+// down; on lifting, a short tap on the face giggles and the third quick tap turns it into a
+// laugh (expression only, no sound).
+bool homeTouchTracking = false;
+unsigned long homeTouchStartMs = 0;
+int32_t homeTouchStartX = 0;
+int32_t homeTouchStartY = 0;
+int32_t homeTouchLastX = 0;
+int32_t homeTouchLastY = 0;
+int32_t homeTouchTravelPx = 0;
+bool homeSwipeDone = false;
+uint8_t homeTapCount = 0;
+unsigned long homeLastTapMs = 0;
 
-void updateTouchReaction(unsigned long now, const m5::touch_detail_t& touch) {
-  if (!touch.isPressed()) {
-    if (reactionTouchTracking && !reactionTouchLaughed && touchReactionsEnabled &&
-        now - reactionTouchStartMs <= TOUCH_REACTION_TAP_MAX_MS &&
-        reactionTouchTravelPx < TOUCH_REACTION_TAP_SLOP_PX) {
-      faceController.playTouchReaction(FaceController::TouchReaction::Giggle, now);
-    }
-    reactionTouchTracking = false;
+void switchAvatarBySwipe(int step, unsigned long now) {
+  if (currentState != ChanState::Idle || macBridgePttPressed || audioBusyForUiEffects()) {
     return;
   }
-  if (!reactionTouchTracking) {
-    const int32_t dx = touch.base_x - roundCenterX();
-    const int32_t dy = touch.base_y - roundCenterY();
-    if (dx * dx + dy * dy > SCREEN_PETTING_RADIUS_PX * SCREEN_PETTING_RADIUS_PX) {
-      return;  // started on the clock, status row or badges
-    }
-    reactionTouchTracking = true;
-    reactionTouchLaughed = false;
-    reactionTouchStartMs = now;
-    reactionTouchTravelPx = 0;
+  const String current = AvatarStore::loadActive();
+  const String next = AvatarStore::adjacent(current, step);
+  if (next == current) {
+    return;  // nothing else to switch to
+  }
+#if STACKCHAN_HAS_HAPTIC
+  // A short tick that ends here: loading the new set blocks the loop, so a timed pulse would run long.
+  if (swipeHapticMs > 0) {
+    M5.Power.setVibration(swipeHapticLevel);
+    delay(swipeHapticMs);
+    M5.Power.setVibration(0);
+  }
+#endif
+  String error;
+  if (!AvatarStore::select(next.c_str(), error)) {
     return;
   }
-  reactionTouchTravelPx += abs(touch.deltaX()) + abs(touch.deltaY());
-  if (touchReactionsEnabled && reactionTouchTravelPx >= TOUCH_REACTION_STROKE_PX &&
-      !faceController.touchReactionActive() &&
-      faceController.playTouchReaction(FaceController::TouchReaction::Laugh, now)) {
-    reactionTouchLaughed = true;
-    reactionTouchTravelPx = 0;
+  faceController.setAvatar(next);
+  JsonDocument event;
+  event["type"] = "avatar.changed";  // keeps the Mac console in step
+  event["id"] = next;
+  event["source"] = "swipe";
+  sendJsonDocument(event);
+}
+
+void updateHomeTouch(unsigned long now, const m5::touch_detail_t& touch) {
+  if (touch.isPressed()) {
+    if (!homeTouchTracking) {
+      homeTouchTracking = true;
+      homeTouchStartMs = now;
+      homeTouchStartX = homeTouchLastX = touch.x;
+      homeTouchStartY = homeTouchLastY = touch.y;
+      homeTouchTravelPx = 0;
+      homeSwipeDone = false;
+      return;
+    }
+    homeTouchTravelPx += abs(touch.x - homeTouchLastX) + abs(touch.y - homeTouchLastY);
+    homeTouchLastX = touch.x;
+    homeTouchLastY = touch.y;
+    const int32_t dx = homeTouchLastX - homeTouchStartX;
+    const int32_t dy = homeTouchLastY - homeTouchStartY;
+    if (!homeSwipeDone && now - homeTouchStartMs <= TOUCH_SWIPE_MAX_MS && abs(dx) >= TOUCH_SWIPE_MIN_PX &&
+        abs(dx) > 2 * abs(dy)) {
+      homeSwipeDone = true;  // one switch per swipe
+      homeTapCount = 0;
+      switchAvatarBySwipe(dx < 0 ? 1 : -1, now);  // finger moves left: next set
+    }
+    return;
+  }
+  if (!homeTouchTracking) {
+    return;
+  }
+  homeTouchTracking = false;
+  if (homeSwipeDone) {
+    return;
+  }
+  const unsigned long heldMs = now - homeTouchStartMs;
+  const int32_t fx = homeTouchStartX - roundCenterX();
+  const int32_t fy = homeTouchStartY - roundCenterY();
+  if (!touchReactionsEnabled || heldMs > TOUCH_REACTION_TAP_MAX_MS || homeTouchTravelPx >= TOUCH_REACTION_TAP_SLOP_PX ||
+      fx * fx + fy * fy > SCREEN_PETTING_RADIUS_PX * SCREEN_PETTING_RADIUS_PX) {
+    return;  // a drag, a long press, or a tap on the clock, status row or badges
+  }
+  homeTapCount = homeTapCount > 0 && now - homeLastTapMs <= TOUCH_REACTION_TAP_GAP_MS ? homeTapCount + 1 : 1;
+  homeLastTapMs = now;
+  if (homeTapCount >= TOUCH_REACTION_LAUGH_TAPS) {
+    homeTapCount = 0;
+    faceController.playTouchReaction(FaceController::TouchReaction::Laugh, now);  // takes over the giggle
+  } else if (homeTapCount == 1) {
+    faceController.playTouchReaction(FaceController::TouchReaction::Giggle, now);
   }
 }
 #endif
@@ -9627,7 +9689,7 @@ void updateTouch(unsigned long now) {
 
 #if STACKCHAN_MAC_BRIDGE_HOME
   if (!infoScreenVisible) {
-    updateTouchReaction(now, touch);
+    updateHomeTouch(now, touch);
   } else
 #endif
   updateScreenPetting(now, touch);

@@ -45,6 +45,7 @@ void FaceController::begin() {
 #endif
   const String avatar = AvatarStore::loadActive();
   avatarDir_ = avatar.isEmpty() ? String() : String("/av/") + avatar;
+  AvatarStore::position(avatar, avatarIndex_, avatarCount_);
   Serial.printf("[face.avatar] %s\n", avatar.isEmpty() ? "built-in" : avatar.c_str());
   Serial.printf("[face.assets] mode=%s schema=%u manifest=%d valid=%d error=%s missing=%s\n",
                 faceAssetModeName(faceAssetStatus_.mode),
@@ -1185,6 +1186,7 @@ void FaceController::setAgentLabel(const char* label) {
 
 void FaceController::setAvatar(const String& id) {
   avatarDir_ = id.isEmpty() ? String() : String("/av/") + id;
+  AvatarStore::position(id, avatarIndex_, avatarCount_);
   for (uint8_t i = 0; i < kImagePathCacheCount; ++i) {
     imagePathCacheReady_[i] = false;
   }
@@ -1197,6 +1199,15 @@ void FaceController::setAvatar(const String& id) {
   if (enabled_) {
     currentPath_ = "";
     showBaseFace();
+  }
+}
+
+void FaceController::refreshAvatarDots() {
+  const uint8_t index = avatarIndex_;
+  const uint8_t count = avatarCount_;
+  AvatarStore::position(avatarDir_.isEmpty() ? String() : avatarDir_.substring(4), avatarIndex_, avatarCount_);
+  if (index != avatarIndex_ || count != avatarCount_) {
+    noticeLayoutDirty_ = true;  // full redraw: the dot strip may have shrunk
   }
 }
 
@@ -1213,10 +1224,10 @@ void FaceController::showHappy(uint32_t durationMs) {
 bool FaceController::playTouchReaction(TouchReaction reaction, unsigned long now) {
   static const char* const kGiggle[] = {"/giggle_1.jpg", "/giggle_2.jpg"};
   static const char* const kLaugh[] = {"/laugh_1.jpg", "/laugh_2.jpg"};
-  if (state_ != ChanState::Idle || happyDurationMs_ != 0 || reactionUntilMs_ != 0) {
+  const bool laugh = reaction == TouchReaction::Laugh;
+  if (state_ != ChanState::Idle || happyDurationMs_ != 0 || (reactionUntilMs_ != 0 && (reactionLaugh_ || !laugh))) {
     return false;
   }
-  const bool laugh = reaction == TouchReaction::Laugh;
   const char* const* frames = laugh ? kLaugh : kGiggle;
   reactionFrameCount_ = 0;
   for (uint8_t i = 0; i < 2; ++i) {
@@ -1230,6 +1241,7 @@ bool FaceController::playTouchReaction(TouchReaction reaction, unsigned long now
     }
     reactionFrames_[reactionFrameCount_++] = kHappyFacePath;
   }
+  reactionLaugh_ = laugh;
   reactionFrameMs_ = laugh ? TOUCH_REACTION_LAUGH_FRAME_MS : TOUCH_REACTION_GIGGLE_FRAME_MS;
   reactionStartedMs_ = now;
   reactionUntilMs_ = now + (laugh ? TOUCH_REACTION_LAUGH_MS : TOUCH_REACTION_GIGGLE_MS);
@@ -3410,6 +3422,19 @@ void FaceController::drawHomeStatusTarget(Target& target) {
   const int32_t pillY = height - 46;
   const int32_t rowY = pillY + pillH / 2;
   target.fillRoundRect(cx - pillW / 2, pillY, pillW, pillH, 13, TFT_BLACK);
+
+  // Page dots for swiping between avatar sets, just above the status row; none with one choice.
+  if (avatarCount_ > 1) {
+    const int32_t gap = 11;
+    const int32_t dotsW = (avatarCount_ - 1) * gap;
+    const int32_t dotsY = pillY - 9;
+    target.fillRoundRect(cx - dotsW / 2 - 7, dotsY - 5, dotsW + 14, 11, 5, TFT_BLACK);
+    for (uint8_t i = 0; i < avatarCount_; ++i) {
+      const bool current = i == avatarIndex_;
+      target.fillCircle(cx - dotsW / 2 + i * gap, dotsY, current ? 3 : 2,
+                        current ? M5.Display.color565(236, 238, 237) : M5.Display.color565(92, 98, 100));
+    }
+  }
   const uint16_t border = M5.Display.color565(201, 209, 206);
   const String percent = batteryLevel_ >= 0 ? String(batteryLevel_) + "%" : String("--");
   target.setTextSize(1);

@@ -533,10 +533,16 @@
 #define SCREEN_PETTING_RADIUS_PX 152
 #define SCREEN_PETTING_REQUIRED_MS 140
 #define SCREEN_PETTING_DRAG_DISTANCE_PX 18
-// Mac Bridge home: tap the face to giggle, stroke it to laugh (expression only).
+// Mac Bridge home: tap the face to giggle, tap it three times quickly to laugh (expression only),
+// swipe left/right to switch avatar sets.
 #define TOUCH_REACTION_TAP_MAX_MS 350
 #define TOUCH_REACTION_TAP_SLOP_PX 24
-#define TOUCH_REACTION_STROKE_PX 90
+#define TOUCH_REACTION_TAP_GAP_MS 500
+#define TOUCH_REACTION_LAUGH_TAPS 3
+#define TOUCH_SWIPE_MAX_MS 600
+#define TOUCH_SWIPE_MIN_PX 100
+#define TOUCH_SWIPE_HAPTIC_LEVEL 170
+#define TOUCH_SWIPE_HAPTIC_MS 40
 #define TOUCH_REACTION_GIGGLE_FRAME_MS 240
 #define TOUCH_REACTION_GIGGLE_MS 1600
 #define TOUCH_REACTION_LAUGH_FRAME_MS 180

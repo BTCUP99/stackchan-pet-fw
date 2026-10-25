@@ -10,7 +10,7 @@ targets the `m5stack-stopwatch-release` environment.
 | USB / Wi-Fi link to the Mac: saved networks, LAN probe with a pinned certificate, WSS through Tailscale Funnel (ISRG roots), mbedTLS in PSRAM | `src/NetLink.*`, `src/NetLinkRootCa.h` |
 | IMA ADPCM audio across the internet path | `src/Adpcm.h` |
 | Avatar sets uploaded over USB to `/av/<id>/`, switching and a happy face | `src/AvatarStore.*`, `src/FaceController.*` |
-| Home touch reactions: tap to giggle, stroke to laugh (replaces the upstream head-pat on the home screen) | `src/main.cpp` (`updateTouchReaction`), `src/FaceController.*` |
+| Home touch: tap to giggle, three quick taps to laugh, swipe left/right to switch avatar sets (replaces the upstream head-pat on the home screen) | `src/main.cpp` (`updateHomeTouch`), `src/AvatarStore.*` (`adjacent`), `src/FaceController.*` |
 | Home screen: clock on top, assistant / link / battery status row, X notice badges | `src/FaceController.*` |
 | Mac Bridge commands, button mapping (hold A to talk, B to switch / stop), upstream interactions off | `src/main.cpp`, `src/config.h` |
 

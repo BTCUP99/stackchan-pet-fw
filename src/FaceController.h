@@ -63,10 +63,13 @@ public:
   void setAgentLabel(const char* label);
   // Uploaded avatar set (/av/<id>/) whose images override the built-in ones; empty = built-in.
   void setAvatar(const String& id);
+  // Re-count the sets for the page dots above the status row (after an upload or delete).
+  void refreshAvatarDots();
   // Show the avatar's happy frame for durationMs once the device is idle (after the closing speech).
   void showHappy(uint32_t durationMs);
   // Touch reaction on the idle home face: the set's two frames alternate, falling back to happy.jpg.
-  // False when the device is busy, a reaction is already playing, or the set has neither.
+  // False when the device is busy, a reaction is already playing (a laugh may take over a giggle),
+  // or the set has neither.
   enum class TouchReaction : uint8_t { Giggle, Laugh };
   bool playTouchReaction(TouchReaction reaction, unsigned long now);
   bool touchReactionActive() const { return reactionUntilMs_ != 0; }
@@ -401,11 +404,14 @@ private:
   uint8_t linkState_ = 0;
   String agentLabel_;
   String avatarDir_;
+  uint8_t avatarIndex_ = 0;
+  uint8_t avatarCount_ = 0;
   uint32_t happyDurationMs_ = 0;
   unsigned long happyRequestedMs_ = 0;
   unsigned long happyUntilMs_ = 0;
   const char* reactionFrames_[2] = {};
   uint8_t reactionFrameCount_ = 0;
+  bool reactionLaugh_ = false;
   uint16_t reactionFrameMs_ = 0;
   unsigned long reactionStartedMs_ = 0;
   unsigned long reactionUntilMs_ = 0;
