@@ -269,7 +269,7 @@ bool macBridgePttPressed = false;
 // The upstream unauthenticated Wi-Fi servers stay off; Wi-Fi is used only by NetLink,
 // which dials out to the Mac when no USB host is talking to the device.
 constexpr bool macBridgeUsbOnly = false;
-constexpr const char* kMacBridgeVersion = "0.5.0";
+constexpr const char* kMacBridgeVersion = "0.5.1";
 unsigned long usbHostLastRxMs = 0;
 bool linkOverNet = false;
 const char* macBridgeAgent = "";  // shown while a Mac is connected

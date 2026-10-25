@@ -2,6 +2,7 @@
 
 #include <LittleFS.h>
 #include <algorithm>
+#include <dirent.h>
 #include <vector>
 #include <mbedtls/base64.h>
 
@@ -15,6 +16,63 @@ constexpr const char* kActivePath = "/av/active";
 constexpr size_t kMaxFileBytes = 64 * 1024;
 constexpr size_t kMaxChunkBytes = 4096;
 constexpr size_t kSpareBytes = 64 * 1024;  // never fill the filesystem to the last block
+constexpr const char* kMount = "/littlefs";  // LittleFS.begin()'s default base path
+constexpr uint16_t kAllBaseFrames = 0xFFFF;
+
+// Every LittleFS path lookup walks from the root, whose directory is crowded with the
+// built-in images, so each costs tens of milliseconds, and so does every File that
+// openNextFile() opens. Read folders by name only (readdir), and cache what swipes,
+// redraws and listings ask for until a write changes it.
+std::vector<String> cycleCache;
+bool cycleCached = false;
+String activeCache;
+bool activeCached = false;
+size_t usedCache = 0;
+bool usedCached = false;
+bool usedExact = false;   // false once an upload has only estimated its growth
+
+void invalidate() {
+  cycleCached = false;
+  activeCached = false;
+}
+
+// Calls fn(name, isDirectory) for each entry of a folder; false if it can't be opened.
+template <typename F>
+bool eachEntry(const String& dir, F fn) {
+  DIR* folder = opendir((String(kMount) + dir).c_str());
+  if (folder == nullptr) {
+    return false;
+  }
+  for (dirent* entry = readdir(folder); entry != nullptr; entry = readdir(folder)) {
+    fn(entry->d_name, entry->d_type == DT_DIR);
+  }
+  closedir(folder);
+  return true;
+}
+
+// Bit m*4+e for base_m{m}_e{e}.jpg, 0 for any other name.
+uint16_t baseFrameBit(const char* name) {
+  if (strlen(name) != 14 || strncmp(name, "base_m", 6) != 0 || strncmp(name + 7, "_e", 2) != 0 ||
+      strcmp(name + 10, ".jpg") != 0 || name[6] < '0' || name[6] > '3' || name[9] < '0' || name[9] > '3') {
+    return 0;
+  }
+  return 1u << ((name[6] - '0') * 4 + (name[9] - '0'));
+}
+
+// Both totalBytes() and usedBytes() walk the whole filesystem (about 0.6 s each when full).
+size_t totalBytes() {
+  static size_t total = LittleFS.totalBytes();  // the partition size never changes
+  return total;
+}
+
+size_t usedBytes() {
+  if (!usedCached) {
+    usedCache = LittleFS.usedBytes();
+    usedCached = true;
+    usedExact = true;
+  }
+  return usedCache;
+}
 
 String dirOf(const char* id) {
   return String(kRoot) + "/" + id;
@@ -71,28 +129,22 @@ bool complete(const char* id) {
   if (!validId(id)) {
     return false;
   }
-  const String dir = dirOf(id);
-  char name[16];
-  for (uint8_t mouth = 0; mouth < 4; ++mouth) {
-    for (uint8_t eye = 0; eye < 4; ++eye) {
-      snprintf(name, sizeof(name), "/base_m%u_e%u.jpg", mouth, eye);
-      if (!LittleFS.exists(dir + name)) {
-        return false;
-      }
-    }
-  }
-  return true;
+  uint16_t frames = 0;
+  eachEntry(dirOf(id), [&](const char* name, bool) { frames |= baseFrameBit(name); });
+  return frames == kAllBaseFrames;
 }
 
 String loadActive() {
-  File file = LittleFS.open(kActivePath, "r");
-  if (!file) {
-    return String();
+  if (activeCached) {
+    return activeCache;
   }
-  String id = file.readString();
-  file.close();
+  File file = LittleFS.open(kActivePath, "r");
+  String id = file ? file.readString() : String();
+  if (file) file.close();
   id.trim();
-  return complete(id.c_str()) ? id : String();
+  activeCache = complete(id.c_str()) ? id : String();
+  activeCached = true;
+  return activeCache;
 }
 
 bool put(JsonVariantConst request, String& error) {
@@ -125,7 +177,7 @@ bool put(JsonVariantConst request, String& error) {
       error = "bad_size";
       return false;
     }
-    if (LittleFS.totalBytes() - LittleFS.usedBytes() < total + kSpareBytes) {
+    if (totalBytes() - usedBytes() < total + kSpareBytes) {
       error = "no_space";
       return false;
     }
@@ -164,6 +216,11 @@ bool put(JsonVariantConst request, String& error) {
   }
   const String target = dir + "/" + name;
   LittleFS.remove(target);
+  invalidate();  // the set may have just become complete, or lost a frame
+  // Count the new file in whole 4 KB blocks without subtracting a replaced copy: an
+  // overestimate is safe for the space check, and the next listing measures it again.
+  usedCache += (size + 4095) / 4096 * 4096;
+  usedExact = false;
   if (!LittleFS.rename(temp, target)) {
     error = "rename_failed";
     return false;
@@ -184,26 +241,26 @@ bool select(const char* id, String& error) {
   }
   file.print(id);
   file.close();
+  activeCache = id;
+  activeCached = true;
   return true;
 }
 
 namespace {
 
 // The built-in face ("") followed by the complete sets sorted by id.
-std::vector<String> cycle() {
-  std::vector<String> ids{String()};
-  File root = LittleFS.open(kRoot);
-  if (root && root.isDirectory()) {
-    for (File entry = root.openNextFile(); entry; entry = root.openNextFile()) {
-      const String id = entry.name();
-      const bool folder = entry.isDirectory();
-      entry.close();
-      if (folder && complete(id.c_str())) ids.push_back(id);
-    }
+const std::vector<String>& cycle() {
+  if (cycleCached) {
+    return cycleCache;
   }
-  if (root) root.close();
+  std::vector<String> ids{String()};
+  eachEntry(kRoot, [&](const char* name, bool folder) {
+    if (folder && complete(name)) ids.push_back(name);
+  });
   std::sort(ids.begin() + 1, ids.end(), [](const String& a, const String& b) { return strcmp(a.c_str(), b.c_str()) < 0; });
-  return ids;
+  cycleCache = ids;
+  cycleCached = true;
+  return cycleCache;
 }
 
 size_t indexIn(const std::vector<String>& ids, const String& current) {
@@ -216,13 +273,13 @@ size_t indexIn(const std::vector<String>& ids, const String& current) {
 }  // namespace
 
 String adjacent(const String& current, int step) {
-  const std::vector<String> ids = cycle();
+  const std::vector<String>& ids = cycle();
   const int count = static_cast<int>(ids.size());
   return ids[((static_cast<int>(indexIn(ids, current)) + step) % count + count) % count];
 }
 
 void position(const String& current, uint8_t& index, uint8_t& count) {
-  const std::vector<String> ids = cycle();
+  const std::vector<String>& ids = cycle();
   count = static_cast<uint8_t>(min<size_t>(ids.size(), 255));
   index = static_cast<uint8_t>(min<size_t>(indexIn(ids, current), 254));
 }
@@ -233,22 +290,19 @@ bool remove(const char* id, String& error) {
     return false;
   }
   const String dir = dirOf(id);
-  File folder = LittleFS.open(dir);
-  if (!folder || !folder.isDirectory()) {
+  std::vector<String> names;
+  if (!eachEntry(dir, [&](const char* name, bool folder) {
+        if (!folder) names.push_back(dir + "/" + name);
+      })) {
     error = "not_found";
     return false;
   }
-  String names[24];
-  uint8_t count = 0;
-  for (File entry = folder.openNextFile(); entry && count < 24; entry = folder.openNextFile()) {
-    names[count++] = dir + "/" + entry.name();
-    entry.close();
-  }
-  folder.close();
-  for (uint8_t i = 0; i < count; ++i) {
-    LittleFS.remove(names[i]);
+  for (const String& name : names) {
+    LittleFS.remove(name);
   }
   LittleFS.rmdir(dir);
+  invalidate();
+  usedCached = false;
   if (loadActive().isEmpty()) {
     String ignored;
     select("", ignored);
@@ -258,43 +312,34 @@ bool remove(const char* id, String& error) {
 
 void writeList(JsonObject out) {
   out["active"] = loadActive();
-  out["fsTotal"] = LittleFS.totalBytes();
-  out["fsUsed"] = LittleFS.usedBytes();
+  out["fsTotal"] = totalBytes();
+  if (!usedExact) usedCached = false;  // measure again after uploads, which only estimate
+  out["fsUsed"] = usedBytes();
   JsonArray sets = out["avatars"].to<JsonArray>();
-  File root = LittleFS.open(kRoot);
-  if (!root || !root.isDirectory()) {
-    return;
-  }
-  for (File entry = root.openNextFile(); entry; entry = root.openNextFile()) {
-    if (!entry.isDirectory()) {
-      entry.close();
-      continue;
+  eachEntry(kRoot, [&](const char* id, bool folder) {
+    if (!folder || !validId(id)) {
+      return;
     }
-    const String id = entry.name();
-    JsonObject item = sets.add<JsonObject>();
-    item["id"] = id;
-    item["complete"] = complete(id.c_str());
-    uint32_t bytes = 0;
     uint8_t files = 0;
+    uint16_t frames = 0;
     bool happy = false;
     bool touch = false;
-    for (File child = entry.openNextFile(); child; child = entry.openNextFile()) {
-      const String name = child.name();
-      if (!name.endsWith(".part")) {
-        bytes += child.size();
-        ++files;
-        happy = happy || name == "happy.jpg";
-        touch = touch || name.startsWith("giggle_") || name.startsWith("laugh_");
+    eachEntry(dirOf(id), [&](const char* name, bool) {
+      if (String(name).endsWith(".part")) {
+        return;
       }
-      child.close();
-    }
+      ++files;
+      frames |= baseFrameBit(name);
+      happy = happy || strcmp(name, "happy.jpg") == 0;
+      touch = touch || strncmp(name, "giggle_", 7) == 0 || strncmp(name, "laugh_", 6) == 0;
+    });
+    JsonObject item = sets.add<JsonObject>();
+    item["id"] = id;
+    item["complete"] = frames == kAllBaseFrames;
     item["files"] = files;
-    item["bytes"] = bytes;
     item["happy"] = happy;
     item["touch"] = touch;
-    entry.close();
-  }
-  root.close();
+  });
 }
 
 }  // namespace AvatarStore
